@@ -5,6 +5,8 @@ import { inter } from "@/assets/fonts/inter";
 import { LuSparkles } from "react-icons/lu";
 import ImageUploadIcon from "../atoms/icons/imageUploadIcon";
 
+type ChatMode = "brain" | "search" | "brain-viz" | "brain-viz-chart";
+
 export type UploadedFile = { file: File; kind: "pdf" | "txt"; content?: string };
 
 interface ChatInputActionsProps {
@@ -17,7 +19,7 @@ interface ChatInputActionsProps {
 const ChatInputActions = ({ disabled, onAttachmentClick, files, onFilesChange }: ChatInputActionsProps) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const { mode, setMode } = useChatMode();
-    const [activeTab, setActiveTab] = useState(mode);
+    const [activeTab, setActiveTab] = useState<ChatMode>(mode);
     const containerRef = useRef<HTMLDivElement>(null);
     const [sliderStyle, setSliderStyle] = useState({});
 
@@ -44,7 +46,7 @@ const ChatInputActions = ({ disabled, onAttachmentClick, files, onFilesChange }:
     // keep context in sync when local tab changes
     useEffect(() => {
         if (activeTab !== mode) {
-            setMode(activeTab as any);
+            setMode(activeTab);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeTab]);
@@ -106,7 +108,7 @@ const ChatInputActions = ({ disabled, onAttachmentClick, files, onFilesChange }:
                             ["brain", LuBrain],
                             ["search", LuSearchCode]
                         ].map(([value, IconComponent]) => {
-                            const tabValue = value as "brain" | "search";
+                            const tabValue = value as ChatMode;
                             const TabIcon = IconComponent as React.ComponentType<{ size: number }>;
                             return (
                                 <button

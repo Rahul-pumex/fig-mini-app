@@ -47,9 +47,9 @@ const CustomAssistantMessage = (props: AssistantMessageProps) => {
                     if (userMessages.length > 0) {
                         const lastUserMessage = userMessages[userMessages.length - 1];
                         // Try to get ID from the element or its parent
-                        const userIdFromDom = (lastUserMessage as any)?.id || 
-                                            (lastUserMessage as any)?.getAttribute?.('data-message-id') ||
-                                            (lastUserMessage.parentElement as any)?.id;
+                        const userIdFromDom = (lastUserMessage as HTMLElement)?.id || 
+                                            (lastUserMessage as HTMLElement)?.getAttribute?.('data-message-id') ||
+                                            (lastUserMessage.parentElement as HTMLElement | null)?.id;
                         if (userIdFromDom) {
                             lastUserId = userIdFromDom;
                         }
@@ -100,16 +100,16 @@ const CustomAssistantMessage = (props: AssistantMessageProps) => {
         // If there's no messageIdToUse, don't show any charts/texts (return empty arrays)
         // If a chart/text doesn't have a message_id field, exclude it to prevent showing for all messages
         const filteredCharts = messageIdToUse
-            ? allCharts.filter((chart: any) => {
+            ? allCharts.filter((chart) => {
                 // Only include charts that have a message_id and it matches
-                return chart.message_id && chart.message_id === messageIdToUse;
+                return (chart as { message_id?: string }).message_id && (chart as { message_id?: string }).message_id === messageIdToUse;
             })
             : [];
         
         const filteredTexts = messageIdToUse
-            ? allTexts.filter((text: any) => {
+            ? allTexts.filter((text) => {
                 // Only include texts that have a message_id and it matches
-                return text.message_id && text.message_id === messageIdToUse;
+                return (text as { message_id?: string }).message_id && (text as { message_id?: string }).message_id === messageIdToUse;
             })
             : [];
 

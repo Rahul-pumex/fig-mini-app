@@ -1,8 +1,9 @@
 // Simplified ChartContainer for mini app
 // In a real implementation, this would render charts from your backend
+import { Chart } from "../../types";
 
 interface ChartContainerProps {
-    charts: any[];
+    charts: Chart[];
     showItemActions?: boolean;
 }
 

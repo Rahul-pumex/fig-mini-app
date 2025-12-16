@@ -1,7 +1,8 @@
 // Simplified ChartSqlPanel for mini app
+import { Chart } from "../../types";
 
 interface ChartSqlPanelProps {
-    charts: any[];
+    charts: Chart[];
 }
 
 export const ChartSqlPanel = ({ charts }: ChartSqlPanelProps) => {

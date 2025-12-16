@@ -40,3 +40,24 @@ export interface CustomChatInputProps {
     onStop?: () => void;
 }
 
+export interface MetricOption {
+    id: string;
+    label: string;
+    icon: React.ReactNode;
+}
+
+export interface CustomAttachmentUIProps {
+    isOpen: boolean;
+    onClose: () => void;
+    onSelect: (option: MetricOption) => void;
+}
+
+export interface Chart {
+    id?: string;
+    name?: string;
+    title?: string;
+    sql?: string;
+    query?: string;
+    [key: string]: any;
+}
+

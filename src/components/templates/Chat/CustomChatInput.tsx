@@ -1,5 +1,5 @@
 import ChatInputActions, { type UploadedFile } from "../../molecules/ChatInputActions";
-import { CustomChatInputProps } from "../../../types";
+import { CustomChatInputProps, MetricOption } from "../../../types";
 import { useEffect, useRef, useState, useCallback } from "react";
 import CustomAttachmentUI from "../../molecules/CustomAttachmentUI";
 import { ArrowUp } from 'lucide-react';
@@ -111,20 +111,20 @@ const CustomChatInput = (props: CustomChatInputProps) => {
             (window as any).__chatSubmitFunction = submitFunction;
         }
 
-        const handleCustomSubmit = (event: any) => {
+        const handleCustomSubmit = (event: CustomEvent<{ message: string }>) => {
             if (event.detail?.message && submitFunction) {
                 submitFunction(event.detail.message);
             }
         };
 
-        const handleKGSaveMessage = (event: any) => {
+        const handleKGSaveMessage = (event: CustomEvent<{ message: string }>) => {
             if (event.detail?.message && submitFunction) {
                 submitFunction(event.detail.message);
             }
         };
 
-        document.addEventListener("copilot-submit-message", handleCustomSubmit);
-        window.addEventListener("kg-send-chat-message", handleKGSaveMessage);
+        document.addEventListener("copilot-submit-message", handleCustomSubmit as EventListener);
+        window.addEventListener("kg-send-chat-message", handleKGSaveMessage as EventListener);
 
         return () => {
             document.removeEventListener("copilot-submit-message", handleCustomSubmit);
@@ -242,7 +242,7 @@ const CustomChatInput = (props: CustomChatInputProps) => {
         }, 100);
     };
 
-    const handleCustomUISelect = (option: any) => {
+    const handleCustomUISelect = (option: MetricOption) => {
         setShowCustomUI(false);
 
         if (submitFunction) {
@@ -274,9 +274,9 @@ const CustomChatInput = (props: CustomChatInputProps) => {
         e.stopPropagation();
     };
 
-    const handleSuggestionClick = (suggestion: any) => {
+    const handleSuggestionClick = (suggestion: { action?: string; text?: string }) => {
         if (submitFunction) {
-            submitFunction(suggestion.action || suggestion.text);
+            submitFunction(suggestion.action || suggestion.text || "");
         } else {
             setMessage(suggestion.action || suggestion.text);
         }

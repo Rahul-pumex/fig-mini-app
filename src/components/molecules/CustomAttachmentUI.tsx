@@ -1,12 +1,12 @@
-import { CustomAttachmentUIProps } from "../../../../types/chatboxTypes";
+import { CustomAttachmentUIProps, MetricOption } from "../../types";
 import { IoCloseSharp } from "react-icons/io5";
 import { LuSparkles } from "react-icons/lu";
-import { extractMetrics } from "@utils";
-import { useFigAgent } from "@hooks";
+import { extractMetrics } from "../../utils";
+import { useFigAgent } from "../../hooks";
 
 const CustomAttachmentUI = ({ isOpen, onClose, onSelect }: CustomAttachmentUIProps) => {
     const { threadInfo } = useFigAgent();
-    let metricOptions;
+    let metricOptions: MetricOption[] | undefined;
     if (threadInfo) metricOptions = extractMetrics(threadInfo, <LuSparkles size={16} />);
 
     if (!isOpen) return null;
@@ -21,8 +21,8 @@ const CustomAttachmentUI = ({ isOpen, onClose, onSelect }: CustomAttachmentUIPro
                     </button>
                 </div>
                 <div className="space-y-1">
-                    {metricOptions?.length > 0 ? (
-                        metricOptions.map((option) => (
+                    {metricOptions && metricOptions.length > 0 ? (
+                        metricOptions.map((option: MetricOption) => (
                             <button
                                 key={option.id}
                                 onClick={() => onSelect(option)}
