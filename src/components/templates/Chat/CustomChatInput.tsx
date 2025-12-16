@@ -116,14 +116,14 @@ const CustomChatInput = (props: CustomChatInputProps) => {
 
     // Listen for sheet data from parent window
     useEffect(() => {
-        if (typeof window === "undefined" || !submitFunction) return;
+        if (typeof window === "undefined") return;
 
         const handleSheetData = (event: MessageEvent) => {
             // Accept messages from any origin when in iframe (you may want to restrict this in production)
             if (event.data && event.data.type === 'SHEET_DATA' && event.data.source === 'google-sheets') {
                 const payload = event.data.payload;
                 if (payload && payload.success && payload.data) {
-                    // Format the sheet data for the chat
+                    // Format the sheet data for the input field
                     let formattedData = "Google Sheets Data\n";
                     formattedData += "==================\n\n";
                     
@@ -165,10 +165,14 @@ const CustomChatInput = (props: CustomChatInputProps) => {
                         formattedData += JSON.stringify(payload.data, null, 2);
                     }
 
-                    // Send formatted data to chat
-                    if (submitFunction) {
-                        submitFunction(formattedData);
-                    }
+                    // Set the formatted data in the input field instead of sending directly
+                    setMessage(formattedData);
+                    
+                    // Focus the textarea to show the data
+                    setTimeout(() => {
+                        textareaRef.current?.focus();
+                        adjustTextareaHeight();
+                    }, 100);
                 }
             }
         };
@@ -178,7 +182,7 @@ const CustomChatInput = (props: CustomChatInputProps) => {
         return () => {
             window.removeEventListener('message', handleSheetData);
         };
-    }, [submitFunction]);
+    }, [adjustTextareaHeight]);
 
     useEffect(() => {
         if (submitFunction && typeof window !== "undefined") {
