@@ -127,8 +127,8 @@ const CustomChatInput = (props: CustomChatInputProps) => {
         window.addEventListener("kg-send-chat-message", handleKGSaveMessage as EventListener);
 
         return () => {
-            document.removeEventListener("copilot-submit-message", handleCustomSubmit);
-            window.removeEventListener("kg-send-chat-message", handleKGSaveMessage);
+            document.removeEventListener("copilot-submit-message", handleCustomSubmit as EventListener);
+            window.removeEventListener("kg-send-chat-message", handleKGSaveMessage as EventListener);
         };
     }, [submitFunction]);
 
@@ -278,7 +278,7 @@ const CustomChatInput = (props: CustomChatInputProps) => {
         if (submitFunction) {
             submitFunction(suggestion.action || suggestion.text || "");
         } else {
-            setMessage(suggestion.action || suggestion.text);
+            setMessage(suggestion.action || suggestion.text || "");
         }
     };
 

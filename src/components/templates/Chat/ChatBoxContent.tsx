@@ -145,7 +145,7 @@ const ChatBoxContent: React.FC<ChatBoxContentProps> = ({ isCollapsed, setIsColla
     }, [scrollToBottom]);
 
     useEffect(() => {
-        onCollapseChange(isCollapsed);
+        onCollapseChange?.(isCollapsed);
     }, [isCollapsed, onCollapseChange]);
 
     useEffect(() => {

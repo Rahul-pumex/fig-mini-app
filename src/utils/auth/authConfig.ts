@@ -37,7 +37,7 @@ const getHeaderValue = (headers: Headers, headerName: string): string | null => 
     if (value) return value;
 
     // Manual iteration through all headers
-    for (const [key, val] of headers.entries()) {
+    for (const [key, val] of Array.from(headers.entries())) {
         if (key.toLowerCase() === headerName.toLowerCase()) {
             return val;
         }
@@ -128,11 +128,9 @@ export const initAuth = () => {
                                                         if (frontTokenData?.uid) {
                                                             store.dispatch(
                                                                 setUser({
-                                                                    id: frontTokenData.uid,
-                                                                    emails: [],
-                                                                    username: frontTokenData.uid,
-                                                                    tenantIds: [],
-                                                                    roles: frontTokenData.up?.["st-role"]?.v || []
+                                                                    userId: frontTokenData.uid,
+                                                                    email: frontTokenData.up?.email || undefined,
+                                                                    username: frontTokenData.uid
                                                                 })
                                                             );
                                                             

@@ -13,11 +13,11 @@ export const useFetchInterceptor = () => {
         const originalFetch = window.fetch;
         
         window.fetch = async (url, options = {}) => {
-            const modifiedOptions = {
+            const modifiedOptions: RequestInit = {
                 ...options,
                 headers: {
-                    ...options.headers
-                }
+                    ...(options.headers as Record<string, string> || {})
+                } as Record<string, string>
             };
 
             // Add authentication headers for API endpoints
@@ -35,11 +35,11 @@ export const useFetchInterceptor = () => {
                     const sessionId = AuthService.getSessionId();
 
                     if (accessToken) {
-                        modifiedOptions.headers["Authorization"] = `Bearer ${accessToken}`;
+                        (modifiedOptions.headers as Record<string, string>)["Authorization"] = `Bearer ${accessToken}`;
                     }
                     
                     if (sessionId) {
-                        modifiedOptions.headers["x-session_id"] = sessionId;
+                        (modifiedOptions.headers as Record<string, string>)["x-session_id"] = sessionId;
                     }
                 }
             }
@@ -92,11 +92,9 @@ export const useFetchInterceptor = () => {
                                 if (front?.uid) {
                                     store.dispatch(
                                         setUser({
-                                            id: front.uid,
-                                            emails: [],
-                                            username: front.uid,
-                                            tenantIds: [],
-                                            roles: front.up?.["st-role"]?.v || []
+                                            userId: front.uid,
+                                            email: front.up?.email || undefined,
+                                            username: front.uid
                                         })
                                     );
                                 }
