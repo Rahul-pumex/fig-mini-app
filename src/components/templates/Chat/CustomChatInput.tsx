@@ -141,66 +141,55 @@ const CustomChatInput = (props: CustomChatInputProps) => {
                     console.warn('[Google Sheets] Request failed:', payload.error || payload.message);
                     formattedData = "No data available in the sheet.\n\n";
                     formattedData += `Error: ${payload.error || payload.message || 'Failed to retrieve sheet data'}`;
-                } else if (!payload.data) {
-                    console.warn('[Google Sheets] No data in payload');
-                    formattedData = "No data available in the sheet.\n\n(Sheet appears to be empty)";
                 } else {
                     // Format the sheet data for the input field
                     formattedData = "Google Sheets Data\n";
                     formattedData += "==================\n\n";
                     
                     try {
-                        // Handle different data formats
-                        if (Array.isArray(payload.data)) {
-                            // If data is an array of rows
-                            if (payload.data.length > 0) {
-                                // First row might be headers
-                                const firstRow = payload.data[0];
-                                const isFirstRowArray = Array.isArray(firstRow);
-                                const headers = isFirstRowArray ? firstRow : Object.keys(firstRow || {});
-                                
-                                if (headers.length > 0) {
-                                    formattedData += "Headers: " + headers.join(", ") + "\n\n";
-                                }
-                                
-                                // Add data rows (skip first row if it was used as headers)
-                                const dataRows = isFirstRowArray ? payload.data.slice(1) : payload.data.slice(1);
-                                
-                                if (dataRows.length > 0) {
-                                    formattedData += "Data:\n";
-                                    dataRows.forEach((row: any, index: number) => {
-                                        if (Array.isArray(row)) {
-                                            formattedData += `Row ${index + 1}: ${row.join(", ")}\n`;
-                                        } else if (typeof row === 'object') {
-                                            formattedData += `Row ${index + 1}: ${JSON.stringify(row)}\n`;
-                                        } else {
-                                            formattedData += `Row ${index + 1}: ${row}\n`;
-                                        }
-                                    });
+                        // Handle the actual payload structure: { headers, rows, sheetName, rowCount, columnCount }
+                        const sheetName = payload.sheetName || 'Sheet';
+                        const headers = payload.headers || [];
+                        const rows = payload.rows || [];
+                        const rowCount = payload.rowCount || 0;
+                        const columnCount = payload.columnCount || 0;
+                        
+                        // Add sheet name
+                        formattedData += `Sheet: ${sheetName}\n`;
+                        formattedData += `Rows: ${rowCount}, Columns: ${columnCount}\n\n`;
+                        
+                        // Add headers if they exist
+                        if (headers.length > 0) {
+                            formattedData += "Headers:\n";
+                            formattedData += headers.join(", ") + "\n\n";
+                        }
+                        
+                        // Add data rows if they exist
+                        if (rows.length > 0) {
+                            formattedData += "Data:\n";
+                            rows.forEach((row: any, index: number) => {
+                                if (Array.isArray(row)) {
+                                    formattedData += `Row ${index + 1}: ${row.join(", ")}\n`;
+                                } else if (typeof row === 'object' && row !== null) {
+                                    // If row is an object, try to match with headers
+                                    if (headers.length > 0) {
+                                        const rowValues = headers.map((header: string) => {
+                                            return row[header] !== undefined ? row[header] : '';
+                                        });
+                                        formattedData += `Row ${index + 1}: ${rowValues.join(", ")}\n`;
+                                    } else {
+                                        formattedData += `Row ${index + 1}: ${JSON.stringify(row)}\n`;
+                                    }
                                 } else {
-                                    formattedData += "No data rows available (only headers found)\n";
+                                    formattedData += `Row ${index + 1}: ${row}\n`;
                                 }
-                            } else {
-                                formattedData += "No data available in the sheet.\n\n(Sheet is empty)";
-                            }
-                        } else if (typeof payload.data === 'object' && payload.data !== null) {
-                            // If data is an object
-                            const keys = Object.keys(payload.data);
-                            if (keys.length > 0) {
-                                formattedData += JSON.stringify(payload.data, null, 2);
-                            } else {
-                                formattedData += "No data available in the sheet.\n\n(Empty object received)";
-                            }
-                        } else if (payload.data === null || payload.data === undefined) {
-                            formattedData = "No data available in the sheet.\n\n(Data is null or undefined)";
+                            });
+                        } else if (headers.length > 0) {
+                            // Headers exist but no data rows
+                            formattedData += "No data rows available (only headers found)\n";
                         } else {
-                            // If data is a string or other type
-                            const dataStr = String(payload.data);
-                            if (dataStr.trim().length > 0) {
-                                formattedData += dataStr;
-                            } else {
-                                formattedData = "No data available in the sheet.\n\n(Data is empty string)";
-                            }
+                            // No headers and no rows
+                            formattedData += "No data available in the sheet.\n\n(Sheet is empty)";
                         }
                     } catch (error) {
                         console.error('[Google Sheets] Error formatting sheet data:', error);
