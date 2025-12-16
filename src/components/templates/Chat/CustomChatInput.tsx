@@ -110,7 +110,10 @@ const CustomChatInput = (props: CustomChatInputProps) => {
     const requestSheetData = useCallback(() => {
         if (typeof window !== "undefined" && window.parent !== window) {
             // We're in an iframe, send message to parent
+            console.log('[Google Sheets] Requesting sheet data from parent window');
             window.parent.postMessage({ type: 'REQUEST_SHEET_DATA' }, '*');
+        } else {
+            console.warn('[Google Sheets] Not in an iframe, cannot request sheet data');
         }
     }, []);
 
@@ -119,12 +122,31 @@ const CustomChatInput = (props: CustomChatInputProps) => {
         if (typeof window === "undefined") return;
 
         const handleSheetData = (event: MessageEvent) => {
+            // Log all messages for debugging
+            console.log('[Google Sheets] Received message:', event.data);
+            
             // Accept messages from any origin when in iframe (you may want to restrict this in production)
             if (event.data && event.data.type === 'SHEET_DATA' && event.data.source === 'google-sheets') {
+                console.log('[Google Sheets] Processing SHEET_DATA message');
                 const payload = event.data.payload;
-                if (payload && payload.success && payload.data) {
+                console.log('[Google Sheets] Payload:', payload);
+                
+                let formattedData = "";
+                
+                // Check if request was successful
+                if (!payload) {
+                    console.warn('[Google Sheets] No payload received');
+                    formattedData = "No data available in the sheet.\n\n(No payload received from Google Sheets)";
+                } else if (payload.success === false) {
+                    console.warn('[Google Sheets] Request failed:', payload.error || payload.message);
+                    formattedData = "No data available in the sheet.\n\n";
+                    formattedData += `Error: ${payload.error || payload.message || 'Failed to retrieve sheet data'}`;
+                } else if (!payload.data) {
+                    console.warn('[Google Sheets] No data in payload');
+                    formattedData = "No data available in the sheet.\n\n(Sheet appears to be empty)";
+                } else {
                     // Format the sheet data for the input field
-                    let formattedData = "Google Sheets Data\n";
+                    formattedData = "Google Sheets Data\n";
                     formattedData += "==================\n\n";
                     
                     try {
@@ -136,44 +158,65 @@ const CustomChatInput = (props: CustomChatInputProps) => {
                                 const firstRow = payload.data[0];
                                 const isFirstRowArray = Array.isArray(firstRow);
                                 const headers = isFirstRowArray ? firstRow : Object.keys(firstRow || {});
-                                formattedData += "Headers: " + headers.join(", ") + "\n\n";
+                                
+                                if (headers.length > 0) {
+                                    formattedData += "Headers: " + headers.join(", ") + "\n\n";
+                                }
                                 
                                 // Add data rows (skip first row if it was used as headers)
                                 const dataRows = isFirstRowArray ? payload.data.slice(1) : payload.data.slice(1);
-                                formattedData += "Data:\n";
-                                dataRows.forEach((row: any, index: number) => {
-                                    if (Array.isArray(row)) {
-                                        formattedData += `Row ${index + 1}: ${row.join(", ")}\n`;
-                                    } else if (typeof row === 'object') {
-                                        formattedData += `Row ${index + 1}: ${JSON.stringify(row)}\n`;
-                                    } else {
-                                        formattedData += `Row ${index + 1}: ${row}\n`;
-                                    }
-                                });
+                                
+                                if (dataRows.length > 0) {
+                                    formattedData += "Data:\n";
+                                    dataRows.forEach((row: any, index: number) => {
+                                        if (Array.isArray(row)) {
+                                            formattedData += `Row ${index + 1}: ${row.join(", ")}\n`;
+                                        } else if (typeof row === 'object') {
+                                            formattedData += `Row ${index + 1}: ${JSON.stringify(row)}\n`;
+                                        } else {
+                                            formattedData += `Row ${index + 1}: ${row}\n`;
+                                        }
+                                    });
+                                } else {
+                                    formattedData += "No data rows available (only headers found)\n";
+                                }
                             } else {
-                                formattedData += "No data available\n";
+                                formattedData += "No data available in the sheet.\n\n(Sheet is empty)";
                             }
-                        } else if (typeof payload.data === 'object') {
+                        } else if (typeof payload.data === 'object' && payload.data !== null) {
                             // If data is an object
-                            formattedData += JSON.stringify(payload.data, null, 2);
+                            const keys = Object.keys(payload.data);
+                            if (keys.length > 0) {
+                                formattedData += JSON.stringify(payload.data, null, 2);
+                            } else {
+                                formattedData += "No data available in the sheet.\n\n(Empty object received)";
+                            }
+                        } else if (payload.data === null || payload.data === undefined) {
+                            formattedData = "No data available in the sheet.\n\n(Data is null or undefined)";
                         } else {
                             // If data is a string or other type
-                            formattedData += String(payload.data);
+                            const dataStr = String(payload.data);
+                            if (dataStr.trim().length > 0) {
+                                formattedData += dataStr;
+                            } else {
+                                formattedData = "No data available in the sheet.\n\n(Data is empty string)";
+                            }
                         }
                     } catch (error) {
-                        console.error('Error formatting sheet data:', error);
-                        formattedData += JSON.stringify(payload.data, null, 2);
+                        console.error('[Google Sheets] Error formatting sheet data:', error);
+                        formattedData = "No data available in the sheet.\n\n";
+                        formattedData += `Error formatting data: ${error instanceof Error ? error.message : String(error)}`;
                     }
-
-                    // Set the formatted data in the input field instead of sending directly
-                    setMessage(formattedData);
-                    
-                    // Focus the textarea to show the data
-                    setTimeout(() => {
-                        textareaRef.current?.focus();
-                        adjustTextareaHeight();
-                    }, 100);
                 }
+
+                // Set the formatted data in the input field instead of sending directly
+                setMessage(formattedData);
+                
+                // Focus the textarea to show the data
+                setTimeout(() => {
+                    textareaRef.current?.focus();
+                    adjustTextareaHeight();
+                }, 100);
             }
         };
 
