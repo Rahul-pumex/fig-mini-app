@@ -1,7 +1,7 @@
 import { AssistantMessageProps } from "@copilotkit/react-ui";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMessageMapping } from "../../MessageMappingContext";
 import { useFigAgent, useResponsiveChatPadding } from "../../../hooks";
 import { GridSpinner } from "../../atoms/GridSpinner";
@@ -15,6 +15,9 @@ const CustomAssistantMessage = (props: AssistantMessageProps) => {
     // useMessageMapping now returns safe defaults if provider isn't available
     const { getUserIdForAssistant, getLastUserMessageId, addMapping } = useMessageMapping();
     const { threadInfo } = useFigAgent();
+    const contentRef = useRef<HTMLDivElement | null>(null);
+    const [hasTable, setHasTable] = useState(false);
+    const [isSendingToSheet, setIsSendingToSheet] = useState(false);
     // Get responsive padding based on chat container width
     const horizontalPadding = useResponsiveChatPadding();
     
@@ -70,6 +73,35 @@ const CustomAssistantMessage = (props: AssistantMessageProps) => {
             }
         }
     }, [assistantId, userMessageId, getLastUserMessageId, addMapping]);
+    
+
+    useEffect(() => {
+        // Listen for write response from Google Sheets
+        const handleWriteResponse = (event: MessageEvent) => {
+            if (event.data && event.data.type === 'WRITE_SHEET_RESPONSE' && event.data.source === 'google-sheets') {
+                console.log('[Google Sheets] Received write response:', event.data.payload);
+                
+                setIsSendingToSheet(false);
+                
+                const payload = event.data.payload;
+                
+                if (payload.success) {
+                    // Show success notification
+                    alert(`✓ Successfully wrote ${payload.totalTables || 1} table(s) to Google Sheets!`);
+                } else {
+                    // Show error notification
+                    alert(`✗ Failed to write to Google Sheets: ${payload.message || 'Unknown error'}`);
+                }
+            }
+        };
+    
+        window.addEventListener('message', handleWriteResponse);
+    
+        return () => {
+            window.removeEventListener('message', handleWriteResponse);
+        };
+    }, []);
+
     
     // Keep currentMessageId for backward compatibility if needed
     const currentMessageId = useMemo(() => {
@@ -149,6 +181,101 @@ const CustomAssistantMessage = (props: AssistantMessageProps) => {
         setChartTab(tab as "sql" | "charts");
     };
     
+    const sanitizeFilename = (value: string) =>
+        (value || "table")
+            .replace(/[<>:"/\\|?*\s]+/g, "-")
+            .replace(/-+/g, "-")
+            .replace(/^-|-$/g, "") || "table";
+
+    const handleExportTables = () => {
+        const container = contentRef.current;
+        if (!container) return;
+
+        const tables = Array.from(container.querySelectorAll("table"));
+        if (!tables.length) return;
+
+        const csvRows: string[] = [];
+
+        tables.forEach((table, tableIndex) => {
+            Array.from(table.rows).forEach((row) => {
+                const cells = Array.from(row.cells).map((cell) => {
+                    const text = cell.innerText.replace(/\s+/g, " ").trim();
+                    const escaped = text.replace(/"/g, '""');
+                    return `"${escaped}"`;
+                });
+                csvRows.push(cells.join(","));
+            });
+
+            // Add blank line between multiple tables
+            if (tableIndex < tables.length - 1) {
+                csvRows.push("");
+            }
+        });
+
+        const csvContent = csvRows.join("\r\n");
+        const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        const baseName = sanitizeFilename(threadInfo?.threadId || "table");
+
+        link.href = url;
+        link.download = `${baseName}-export.csv`;
+        link.click();
+
+        setTimeout(() => {
+            window.URL.revokeObjectURL(url);
+        }, 0);
+    };
+
+    const handleSendTablesToSheet = () => {
+        const container = contentRef.current;
+        if (!container) return;
+
+        const tables = Array.from(container.querySelectorAll("table"));
+        if (!tables.length) return;
+
+        const tablePayload = tables.map((table, idx) => {
+            const rows = Array.from(table.rows).map((row) =>
+                Array.from(row.cells).map((cell) => cell.innerText.replace(/\s+/g, " ").trim())
+            );
+
+            return {
+                name: `Table ${idx + 1}`,
+                rows
+            };
+        });
+
+        // Log the payload that will be sent to the host (Sheets) before sending
+        console.log("[Sheets] Table payload to send:", tablePayload);
+
+        const message = {
+            type: "WRITE_SHEET_DATA",
+            source: "omniscop-chat",
+            payload: {
+                tables: tablePayload,
+                threadId: threadInfo?.threadId || null
+            }
+        };
+
+        if (typeof window !== "undefined" && window.parent && window.parent !== window) {
+            setIsSendingToSheet(true);
+            window.parent.postMessage(message, "*");
+            setTimeout(() => setIsSendingToSheet(false), 800);
+        } else {
+            console.warn("[Google Sheets] Not running inside an iframe; cannot send sheet data");
+        }
+    };
+
+    useEffect(() => {
+        const container = contentRef.current;
+        if (!container) {
+            setHasTable(false);
+            return;
+        }
+        const containsTable = container.querySelector("table") !== null;
+        setHasTable(containsTable);
+    }, [message, isLoading]);
+
     const renderChartContent = () => {
         if (!derivedState.hasCharts && !shouldShowLoader) return null;
 
@@ -172,7 +299,7 @@ const CustomAssistantMessage = (props: AssistantMessageProps) => {
             <div className="flex items-start">
                 <div className="w-full overflow-x-auto overflow-y-visible wrap-break-word whitespace-pre-line text-black">
                     {message && (
-                        <div className="prose prose-sm max-w-none">
+                        <div className="prose prose-sm max-w-none" ref={contentRef}>
                             <ReactMarkdown
                                 remarkPlugins={[remarkGfm]}
                                 components={{
@@ -212,6 +339,26 @@ const CustomAssistantMessage = (props: AssistantMessageProps) => {
                     )}
                 </div>
             </div>
+
+            {hasTable && !isLoading && message && (
+                <div className="mt-3 flex justify-end gap-2">
+                    <button
+                        type="button"
+                        onClick={handleSendTablesToSheet}
+                        disabled={isSendingToSheet}
+                        className="rounded bg-[#745263] px-3 py-2 text-xs font-semibold text-white shadow hover:bg-[#5d414f] focus:outline-none focus:ring-2 focus:ring-[#745263] focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                        {isSendingToSheet ? "Sending…" : "Send table to Sheet"}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleExportTables}
+                        className="rounded bg-[#745263] px-3 py-2 text-xs font-semibold text-white shadow hover:bg-[#5d414f] focus:outline-none focus:ring-2 focus:ring-[#745263] focus:ring-offset-1"
+                    >
+                        Export table to Excel
+                    </button>
+                </div>
+            )}
 
             {subComponent && <div className="my-2">{subComponent}</div>}
             
