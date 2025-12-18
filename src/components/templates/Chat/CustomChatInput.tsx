@@ -411,8 +411,8 @@ const CustomChatInput = (props: CustomChatInputProps) => {
 
             <ContextBubble />
 
-            <form onSubmit={handleSubmit} className="flex items-start gap-1 px-4 py-3">
-                <div className="flex flex-1 items-stretch rounded-xl border border-gray-300 bg-white px-2 py-2 shadow-sm hover:border-gray-400 focus-within:border-[#745263] focus-within:ring-2 focus-within:ring-[#745263]/20 transition-all">
+            <form onSubmit={handleSubmit} className="flex items-start gap-1 px-4 py-2">
+                <div className="flex flex-1 items-stretch rounded-xl border border-gray-300 bg-white px-2 py-1.5 shadow-sm hover:border-gray-400 focus-within:border-[#745263] focus-within:ring-2 focus-within:ring-[#745263]/20 transition-all">
                     <div className="flex items-center gap-2">
                         <button
                             type="button"
@@ -446,12 +446,12 @@ const CustomChatInput = (props: CustomChatInputProps) => {
                             rows={1}
                             className={`relative z-0 w-full min-w-0 resize-none border-none px-2 pr-12 text-sm focus:ring-0 focus:outline-none sm:px-3 sm:pr-12 ${isScrollable ? "scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent overflow-y-auto" : "overflow-hidden"} `}
                             style={{
-                                minHeight: "2rem",
+                                minHeight: "1.75rem",
                                 maxHeight: "7.5rem",
                                 color: "#000000",
                                 lineHeight: "1.25rem",
-                                paddingTop: "0.5rem",
-                                paddingBottom: "0.5rem"
+                                paddingTop: "0.375rem",
+                                paddingBottom: "0.375rem"
                             }}
                             onWheel={handleTextareaWheel}
                             onFocus={() => {
