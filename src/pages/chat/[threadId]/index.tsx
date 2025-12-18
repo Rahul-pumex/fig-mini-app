@@ -72,16 +72,13 @@ function ThreadPage() {
                         {/* Header */}
                         <div className="border-b border-gray-200 bg-white shadow-sm">
                                 <div className="flex items-center justify-between h-10 w-[98%]">
-                                    <div className="flex items-center gap-4">
+                                    <div className="flex items-center gap-1">
                                         <button
                                             onClick={toggleThreadList}
                                             className="group relative flex items-center justify-center px-2 py-2 rounded-lg text-[#745263] transition-all hover:bg-[#FAF8F9] active:scale-95"
                                             aria-label="Threads"
                                         >
                                             <LucideList size={22} strokeWidth={2} />
-                                            <span className="pointer-events-none absolute -bottom-10 left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-md bg-gray-900 px-3 py-1.5 text-xs text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
-                                                Threads
-                                            </span>
                                         </button>
                                         <button
                                             onClick={handleNewThread}
