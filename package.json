@@ -7,7 +7,7 @@
 		"build:css:watch": "echo 'Start Watching tailwindcss' && npm run build:css -- --watch",
 		"dev": "concurrently \"npm run build:css:watch\" \"npm run start:dev\"",
 		"prebuild": "npm run build:css",
-		"start": "next start -H 0.0.0.0 -p 8081",
+		"start": "next start -H 0.0.0.0 -p 8080",
 		"start:dev": "cross-env NODE_OPTIONS=--max-old-space-size=8192 next dev -p 3001"
 	},
 	"dependencies": {

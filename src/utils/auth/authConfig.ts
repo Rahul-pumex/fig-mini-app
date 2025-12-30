@@ -10,7 +10,11 @@ const COMPANY_NAME = "OmniScop Mini";
 
 let websiteDomain = "http://localhost:3001";
 if (typeof window !== "undefined") {
-    websiteDomain = window.location.origin;
+    // Use env variable if set, otherwise use the current origin (works in Docker)
+    websiteDomain = process.env.NEXT_PUBLIC_WEBSITE_DOMAIN || window.location.origin;
+} else {
+    // Server-side: use env variable or default
+    websiteDomain = process.env.NEXT_PUBLIC_WEBSITE_DOMAIN || "http://localhost:3001";
 }
 
 export const getTokenExpiry = (token: string): number => {
@@ -218,7 +222,7 @@ export const initAuth = () => {
             );
 
             SuperTokens.init({
-                enableDebugLogs: process.env.NEXT_PUBLIC_SUPERTOKENS_LOGGING_ENABLED === "true",
+                enableDebugLogs: false,
                 defaultToSignUp: false,
                 appInfo: {
                     appName: process.env.NEXT_PUBLIC_APP_NAME || COMPANY_NAME,
