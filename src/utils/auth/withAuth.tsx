@@ -1,6 +1,8 @@
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 import { AuthService } from "./authService";
+import { isRedirectInProgress, setRedirectFlag, clearRedirectFlag } from "./redirectUtils";
+import { DEFAULT_AUTHENTICATED_ROUTE } from "./authConstants";
 
 // Global auth check state - persists across page navigations
 let globalAuthChecked = false;
@@ -41,22 +43,11 @@ export function withAuth<P extends object>(
                     return;
                 }
 
-                const redirectFlag = sessionStorage.getItem("auth_redirecting");
-                const redirectTimestamp = sessionStorage.getItem("auth_redirecting_time");
-
-                if (pathname !== "/" && redirectFlag && redirectTimestamp) {
-                    const elapsed = Date.now() - parseInt(redirectTimestamp);
-                    if (elapsed > 2000) {
-                        // Stale flag, clear it
-                        sessionStorage.removeItem("auth_redirecting");
-                        sessionStorage.removeItem("auth_redirecting_time");
-                    } else {
-                        setIsChecking(false);
-                        return;
-                    }
-                } else if (redirectFlag) {
-                    // Flag exists but no timestamp, clear it
-                    sessionStorage.removeItem("auth_redirecting");
+                // Check if redirect is in progress using new utility
+                if (isRedirectInProgress()) {
+                    console.log("[withAuth] Redirect in progress, waiting...");
+                    setIsChecking(false);
+                    return;
                 }
 
                 try {
@@ -92,8 +83,7 @@ export function withAuth<P extends object>(
                             globalIsAuthenticated = true;
                             setIsAuthenticated(true);
                             setIsChecking(false);
-                            sessionStorage.removeItem("auth_redirecting");
-                            sessionStorage.removeItem("auth_redirecting_time");
+                            clearRedirectFlag();
                             return;
                         }
                     }
@@ -119,8 +109,7 @@ export function withAuth<P extends object>(
                         }
                         globalAuthChecked = false;
                         globalIsAuthenticated = false;
-                        sessionStorage.setItem("auth_redirecting", "true");
-                        sessionStorage.setItem("auth_redirecting_time", Date.now().toString());
+                        setRedirectFlag();
                         setIsRedirecting(true);
                         setIsChecking(false);
                         await router.replace(getAuthRedirectUrl(router));
@@ -152,8 +141,7 @@ export function withAuth<P extends object>(
                         AuthService.clearAllTokens();
                         globalAuthChecked = false;
                         globalIsAuthenticated = false;
-                        sessionStorage.setItem("auth_redirecting", "true");
-                        sessionStorage.setItem("auth_redirecting_time", Date.now().toString());
+                        setRedirectFlag();
                         setIsRedirecting(true);
                         setIsChecking(false);
                         await router.replace(getAuthRedirectUrl(router));
@@ -170,8 +158,7 @@ export function withAuth<P extends object>(
                             globalIsAuthenticated = true;
                             setIsAuthenticated(true);
                             setIsChecking(false);
-                            sessionStorage.removeItem("auth_redirecting");
-                            sessionStorage.removeItem("auth_redirecting_time");
+                            clearRedirectFlag();
                             return;
                         }
                         
@@ -182,13 +169,11 @@ export function withAuth<P extends object>(
                             globalIsAuthenticated = true;
                             setIsAuthenticated(true);
                             setIsChecking(false);
-                            // Clear redirect flags on success
-                            sessionStorage.removeItem("auth_redirecting");
-                            sessionStorage.removeItem("auth_redirecting_time");
+                            clearRedirectFlag();
 
                             // Redirect from root to chat
                             if (pathname === "/") {
-                                await router.push("/chat/new", undefined, { shallow: true });
+                                await router.push(DEFAULT_AUTHENTICATED_ROUTE, undefined, { shallow: true });
                             }
                         } else {
                             // CRITICAL: Even if validation failed, check if we're still in recent login period
@@ -198,14 +183,12 @@ export function withAuth<P extends object>(
                                 globalIsAuthenticated = true;
                                 setIsAuthenticated(true);
                                 setIsChecking(false);
-                                sessionStorage.removeItem("auth_redirecting");
-                                sessionStorage.removeItem("auth_redirecting_time");
+                                clearRedirectFlag();
                                 return;
                             }
                             globalAuthChecked = false;
                             globalIsAuthenticated = false;
-                            sessionStorage.setItem("auth_redirecting", "true");
-                            sessionStorage.setItem("auth_redirecting_time", Date.now().toString());
+                            setRedirectFlag();
                             setIsRedirecting(true);
                             setIsChecking(false);
                             await router.replace(getAuthRedirectUrl(router));
@@ -221,8 +204,7 @@ export function withAuth<P extends object>(
                     globalAuthChecked = false;
                     globalIsAuthenticated = false;
                     AuthService.clearAllTokens();
-                    sessionStorage.setItem("auth_redirecting", "true");
-                    sessionStorage.setItem("auth_redirecting_time", Date.now().toString());
+                    setRedirectFlag();
                     setIsRedirecting(true);
                     setIsChecking(false);
                     await router.replace(getAuthRedirectUrl(router));
@@ -254,8 +236,7 @@ export function withAuth<P extends object>(
         // Clear redirect flags when component unmounts OR when router changes
         useEffect(() => {
             const handleRouteChange = () => {
-                sessionStorage.removeItem("auth_redirecting");
-                sessionStorage.removeItem("auth_redirecting_time");
+                clearRedirectFlag();
             };
 
             // Listen to logout events to clear global state

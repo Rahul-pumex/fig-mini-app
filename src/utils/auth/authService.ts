@@ -1,12 +1,11 @@
+import { REFRESH_TOKEN_COOKIE, SUPERTOKENS_LOCALSTORAGE_PATTERNS, SUPERTOKENS_COOKIE_NAMES } from "./authConstants";
 import { clearAuth, setTokens, updateAccessToken } from "@redux/slices/authSlice";
+import { tokenRefreshQueue } from "./tokenRefreshQueue";
 import { setCookie, deleteCookie } from "./cookieUtils";
-import { store, persistor } from "@redux/store";
-
-// Token and session constants
-const REFRESH_TOKEN_COOKIE = "refresh_token";
+import { store } from "@redux/store";
 
 // Get token expiry from JWT
-const getTokenExpiry = (token: string): number => {
+export const getTokenExpiry = (token: string): number => {
     try {
         const payload = JSON.parse(atob(token.split('.')[1]));
         return payload.exp * 1000;
@@ -15,135 +14,154 @@ const getTokenExpiry = (token: string): number => {
     }
 };
 
-// Non-hook version of auth functions for use in non-React contexts
+/**
+ * AuthService: Non-hook authentication utilities for use in non-React contexts
+ *
+ * VALIDATION STRATEGY:
+ * - Session validation happens ONLY at page load in withAuth HOC
+ * - API interceptors handle 401 errors with automatic token refresh
+ * - No per-request validation (improves performance)
+ */
 export const AuthService = {
-    isRefreshing: false,
-    
+    /**
+     * Validate session through backend API
+     *
+     * This is the SINGLE SOURCE OF TRUTH for session validation.
+     * Called only by withAuth HOC at page load, not on every API request.
+     *
+     * @returns Promise<boolean> - true if session is valid, false otherwise
+     */
     validateSession: async (): Promise<boolean> => {
         try {
-            // CRITICAL: Check if we JUST logged in - if so, skip validation
-            // This prevents the refresh API call loop
-            const justLoggedInTs = typeof sessionStorage !== "undefined" ? sessionStorage.getItem("just_logged_in") : null;
-            if (justLoggedInTs) {
-                const timeSinceLogin = Date.now() - Number(justLoggedInTs);
-                // Extended grace period - don't validate for 30 seconds after login
-                if (timeSinceLogin < 30000) {
-                    return true; // Trust that login was successful
-                }
-            }
-            
             const accessToken = AuthService.getAccessToken();
             const sessionId = AuthService.getSessionId();
 
+            // No access token = not authenticated
             if (!accessToken) {
+                console.log("[AuthService] No access token, validation failed");
                 return false;
             }
 
-            // If no session ID but we have a token, allow it (backend might not provide sessionId)
+            // No session ID = incomplete session, clear tokens
             if (!sessionId) {
-                // DON'T clear tokens - just proceed with validation
+                console.warn("[AuthService] No session ID, clearing tokens");
+                AuthService.clearAllTokens();
+                return false;
             }
 
-            const headers: Record<string, string> = {
-                Authorization: `Bearer ${accessToken}`,
-                "Content-Type": "application/json"
-            };
-            
-            if (sessionId) {
-                headers["x-session_id"] = sessionId;
-            }
-            
+            console.log("[AuthService] Validating session with backend...");
+
             const response = await fetch(`/api/auth/validate-session`, {
                 method: "POST",
-                headers
+                headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    "x-session_id": sessionId,
+                    "Content-Type": "application/json"
+                }
             });
 
             if (response.ok) {
+                console.log("[AuthService] Session is valid");
                 return true;
             }
 
+            // If 401, try to refresh tokens
             if (response.status === 401) {
-                // Check if refresh is already in progress
-                if (AuthService.isRefreshing) {
-                    return false;
-                }
-
-                // Try to refresh token if session is invalid
+                console.log("[AuthService] Session expired (401), attempting refresh...");
                 const refreshed = await AuthService.refreshSession();
 
-                // Don't re-validate after refresh - just return the refresh result
-                // The next API call will use the new tokens
                 if (refreshed) {
+                    console.log("[AuthService] Refresh succeeded, session now valid");
                     return true;
-                } else {
-                    AuthService.clearAllTokens();
-                    return false;
                 }
+
+                console.warn("[AuthService] Refresh failed, clearing auth state");
+                AuthService.clearAllTokens();
+                return false;
             }
 
-            console.error("[AuthService] Session validation failed with status:", response.status);
+            console.warn("[AuthService] Validation failed with status:", response.status);
             return false;
         } catch (error) {
-            console.error("[AuthService] Session validation error:", error);
+            // Gracefully handle session errors
+            if (error instanceof Error && error.message?.includes("No session exists")) {
+                console.warn("[AuthService] No session exists");
+                return false;
+            }
+            console.error("[AuthService] Validation error:", error);
             return false;
         }
     },
 
+    /**
+     * Refresh session using refresh token
+     *
+     * Uses tokenRefreshQueue to prevent concurrent refresh attempts.
+     * Multiple simultaneous calls will be queued and resolved with the same result.
+     *
+     * @returns Promise<boolean> - true if refresh succeeded, false otherwise
+     */
     refreshSession: async (): Promise<boolean> => {
-        if (AuthService.isRefreshing) {
-            return false;
-        }
+        return tokenRefreshQueue.executeRefresh(async () => {
+            try {
+                const refreshToken = AuthService.getRefreshToken() || AuthService.getRefreshTokenFromCookie();
 
-        AuthService.isRefreshing = true;
+                if (!refreshToken) {
+                    console.error("[AuthService] No refresh token available");
+                    return false;
+                }
 
-        try {
-            const refreshToken = AuthService.getRefreshToken() || AuthService.getRefreshTokenFromCookie();
+                console.log("[AuthService] Refreshing session...");
 
-            if (!refreshToken) {
+                const response = await fetch(`/api/auth/session/refresh`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${refreshToken}`
+                    }
+                });
+
+                if (!response.ok) {
+                    console.warn("[AuthService] Refresh failed:", response.status);
+
+                    // Clear tokens if refresh token is invalid
+                    if (response.status === 401 || response.status === 403) {
+                        console.warn("[AuthService] Refresh token invalid");
+                        AuthService.clearAllTokens();
+                    }
+
+                    return false;
+                }
+
+                const data = await response.json();
+                if (data.status !== "OK" || !data.tokens) {
+                    console.warn("[AuthService] Invalid refresh response");
+                    return false;
+                }
+
+                // Get new session ID from response headers
+                const newSessionId = response.headers.get("x-session_id");
+                const state = store.getState();
+                const currentAuth = state?.auth;
+
+                // Update Redux with new tokens
+                store.dispatch(
+                    setTokens({
+                        accessToken: data.tokens.accessToken,
+                        refreshToken: refreshToken, // Keep existing refresh token
+                        accessTokenExpiry: data.tokens.accessTokenExpiry || getTokenExpiry(data.tokens.accessToken),
+                        refreshTokenExpiry: currentAuth?.tokens?.refreshTokenExpiry || Date.now() + 30 * 24 * 60 * 60 * 1000,
+                        sessionId: newSessionId || currentAuth?.tokens?.sessionId || ""
+                    })
+                );
+
+                console.log("[AuthService] Session refreshed successfully");
+                return true;
+            } catch (error) {
+                console.error("[AuthService] Refresh error:", error);
                 return false;
             }
-
-            const response = await fetch(`/api/auth/session/refresh`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${refreshToken}`
-                }
-            });
-
-            if (response.ok) {
-                const data = await response.json();
-                if (data.status === "OK" && data.tokens) {
-                    const newSessionId = response.headers.get("x-session_id");
-                    const currentRefreshToken = AuthService.getRefreshToken();
-                    const state = store.getState();
-                    const currentAuth = state?.auth;
-
-                    store.dispatch(
-                        setTokens({
-                            accessToken: data.tokens.accessToken,
-                            refreshToken: currentRefreshToken || refreshToken,
-                            accessTokenExpiry: data.tokens.accessTokenExpiry || getTokenExpiry(data.tokens.accessToken),
-                            refreshTokenExpiry: currentAuth?.tokens?.refreshTokenExpiry || Date.now() + 30 * 24 * 60 * 60 * 1000,
-                            sessionId: newSessionId || currentAuth?.tokens?.sessionId || ""
-                        })
-                    );
-
-                    return true;
-                }
-            }
-
-            if (response.status === 401 || response.status === 403) {
-                AuthService.clearAllTokens();
-            }
-
-            return false;
-        } catch (error) {
-            console.error("[AuthService] Session refresh error:", error);
-            return false;
-        } finally {
-            AuthService.isRefreshing = false;
-        }
+        });
     },
 
     isAccessTokenExpired: (): boolean => {
@@ -289,31 +307,73 @@ export const AuthService = {
         return !!(auth?.tokens?.accessToken && auth?.tokens?.sessionId && !AuthService.isAccessTokenExpired());
     },
 
+    /**
+     * Clear all authentication data
+     *
+     * Clears:
+     * - Redux auth state
+     * - Refresh token cookie
+     * - SuperTokens conflicting data
+     * - Token refresh queue
+     */
     clearAllTokens: (): void => {
+        console.log("[AuthService] Clearing all authentication data");
+
+        // Clear Redux state
         store.dispatch(clearAuth());
+
+        // Clear refresh token cookie
         deleteCookie(REFRESH_TOKEN_COOKIE);
 
+        // Clear token refresh queue
+        tokenRefreshQueue.clear();
+
+        // Clear SuperTokens localStorage
         if (typeof localStorage !== "undefined") {
             const keysToRemove: string[] = [];
             for (let i = 0; i < localStorage.length; i++) {
                 const key = localStorage.key(i);
-                if (key && (key.includes("supertokens") || key.includes("st-") || key.includes("front-token"))) {
+                if (key && SUPERTOKENS_LOCALSTORAGE_PATTERNS.some((pattern) => key.includes(pattern))) {
                     keysToRemove.push(key);
                 }
             }
             keysToRemove.forEach((key) => localStorage.removeItem(key));
-            localStorage.removeItem("refreshToken");
         }
 
+        // Clear SuperTokens cookies
+        if (typeof document !== "undefined") {
+            SUPERTOKENS_COOKIE_NAMES.forEach((cookieName) => {
+                document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
+                document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=${window.location.hostname};`;
+            });
+        }
+
+        // Clear session storage flags
         if (typeof sessionStorage !== "undefined") {
-            sessionStorage.removeItem("fresh_login");
             sessionStorage.removeItem("just_logged_in");
-            sessionStorage.removeItem("login_redirect");
+            sessionStorage.removeItem("auth_redirecting");
+        }
+    },
+
+    /**
+     * Clear SuperTokens data that might conflict with our auth system
+     *
+     * Called when not authenticated to prevent SuperTokens from interfering
+     */
+    clearConflictingSuperTokensData: (): void => {
+        if (typeof localStorage !== "undefined") {
+            const keysToRemove: string[] = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && SUPERTOKENS_LOCALSTORAGE_PATTERNS.some((pattern) => key.includes(pattern))) {
+                    keysToRemove.push(key);
+                }
+            }
+            keysToRemove.forEach((key) => localStorage.removeItem(key));
         }
 
         if (typeof document !== "undefined") {
-            const cookiesToClear = ["st-access-token", "st-refresh-token", "front-token", "sessionId"];
-            cookiesToClear.forEach((cookieName) => {
+            SUPERTOKENS_COOKIE_NAMES.forEach((cookieName) => {
                 document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
                 document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=${window.location.hostname};`;
             });

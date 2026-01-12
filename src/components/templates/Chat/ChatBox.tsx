@@ -27,6 +27,9 @@ export const ChatBox: React.FC<ChatBoxProps> = ({ threadId, onCollapseChange }) 
                 key={threadId ?? "__new__"}
                 showDevConsole={false}
                 credentials="include"
+                properties={{
+                    clientType: process.env.NEXT_PUBLIC_CLIENT_TYPE || "spreadsheet"
+                }}
             >
                 <ChatBoxContent isCollapsed={isCollapsed} setIsCollapsed={setIsCollapsed} onCollapseChange={handleCollapseChange} />
             </CopilotKit>

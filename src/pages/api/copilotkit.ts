@@ -11,6 +11,11 @@ const getAdminAgent = () => {
     return process.env.COPILOT_BACKEND_URL || process.env.NEXT_PUBLIC_ADMIN_AGENT || process.env.ADMIN_AGENT || "";
 };
 
+const getClientType = () => {
+    // Client type defaults to "spreadsheet", only use env if available
+    return process.env.NEXT_PUBLIC_CLIENT_TYPE || process.env.CLIENT_TYPE || "spreadsheet";
+};
+
 const handler = async (req: NextApiRequest, res: NextApiResponse) => {
     console.log("[CopilotKit API] Request received:", {
         method: req.method,
@@ -111,11 +116,13 @@ const handler = async (req: NextApiRequest, res: NextApiResponse) => {
     });
 
     // Create the request handler
+    const clientType = getClientType();
     const handleRequest = copilotRuntimeNextJSPagesRouterEndpoint({
         endpoint: "/api/copilotkit",
         runtime,
         properties: {
-            accessToken: accessToken
+            accessToken: accessToken,
+            clientType: clientType
         },
         serviceAdapter: new OpenAIAdapter({ openai: new OpenAI({ apiKey: "" }) })
     });

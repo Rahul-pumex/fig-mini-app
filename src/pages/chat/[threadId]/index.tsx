@@ -6,7 +6,7 @@ import { ChatModeProvider } from "../../../components/ChatModeContext";
 import { MessageMappingProvider } from "../../../components/MessageMappingContext";
 import { SelectedContextsProvider } from "../../../components/SelectedContextsContext";
 import { LucideLogOut, LucideMessageSquarePlus, LucideList } from "lucide-react";
-import { useFigAgent } from "@/hooks/useFigAgent";
+import { useFigAgent } from "@/hooks";
 import { GridSpinner } from "@components/atoms/GridSpinner";
 import ExistingChatIcon from "../../../components/icons/existingChat";
 

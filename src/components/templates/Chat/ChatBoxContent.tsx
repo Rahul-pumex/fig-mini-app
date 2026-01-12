@@ -181,7 +181,6 @@ const ChatBoxContent: React.FC<ChatBoxContentProps> = ({ isCollapsed, setIsColla
             setThreadId(oid);
             fetchThreads();
             setTimeout(() => {
-                console.log("[ChatBoxContent] Updating URL to thread:", oid);
                 router.replace(`${THREAD_PAGE_PREFIX}/${oid}`, undefined, { shallow: true });
             }, 1000);
         }

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 import { AdminFlowAgentState } from '../types';
 import { AuthService } from '../utils/auth/authService';
 
@@ -7,8 +7,20 @@ type ThreadItem = {
     description?: string;
 };
 
-// Simplified useFigAgent for mini app with real thread fetching
-export const useFigAgent = () => {
+interface FigAgentContextType {
+    threadId: string | undefined;
+    setThreadId: (id: string | undefined) => void;
+    threadInfo: AdminFlowAgentState | null;
+    setThread: (data: AdminFlowAgentState) => void;
+    fetchThreads: () => Promise<void>;
+    thread_list: ThreadItem[];
+    thread_list_status: 'IDLE' | 'LOADING' | 'SUCCESS' | 'FAILED';
+    delete_thread: null;
+}
+
+const FigAgentContext = createContext<FigAgentContextType | undefined>(undefined);
+
+export const FigAgentProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [threadId, setThreadIdState] = useState<string | undefined>();
     const [threadInfo, setThreadInfo] = useState<AdminFlowAgentState | null>(null);
     const [threadList, setThreadList] = useState<ThreadItem[]>([]);
@@ -50,7 +62,7 @@ export const useFigAgent = () => {
         }
     }, [threadListStatus]);
 
-    return {
+    const value = useMemo(() => ({
         threadId,
         setThreadId,
         threadInfo,
@@ -59,7 +71,16 @@ export const useFigAgent = () => {
         thread_list: threadList,
         thread_list_status: threadListStatus,
         delete_thread: null
-    };
+    }), [threadId, threadInfo, threadList, threadListStatus, setThreadId, setThread, fetchThreads]);
+
+    return <FigAgentContext.Provider value={value}>{children}</FigAgentContext.Provider>;
 };
 
+export const useFigAgent = (): FigAgentContextType => {
+    const context = useContext(FigAgentContext);
+    if (context === undefined) {
+        throw new Error('useFigAgent must be used within a FigAgentProvider');
+    }
+    return context;
+};
 

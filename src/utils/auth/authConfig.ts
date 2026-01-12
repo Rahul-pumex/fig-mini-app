@@ -133,8 +133,14 @@ export const initAuth = () => {
                                                             store.dispatch(
                                                                 setUser({
                                                                     userId: frontTokenData.uid,
-                                                                    email: frontTokenData.up?.email || undefined,
-                                                                    username: frontTokenData.uid
+                                                                    emails: frontTokenData.up?.email ? [frontTokenData.up.email] : [],
+                                                                    username: frontTokenData.uid,
+                                                                    tenantId: "",
+                                                                    userRoles: [],
+                                                                    onboarding_status: {
+                                                                        onboarded: false,
+                                                                        initialChoice: false
+                                                                    }
                                                                 })
                                                             );
                                                             

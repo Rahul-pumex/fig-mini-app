@@ -7,6 +7,7 @@ import { CopilotKit } from "@copilotkit/react-core";
 import { ADMIN_AGENT_NAME } from "../constants";
 import { SafeSuperTokensWrapper } from "../components/auth/SafeSuperTokensWrapper";
 import AuthErrorBoundary from "../components/auth/AuthErrorBoundary";
+import { FigAgentProvider } from "../contexts/FigAgentContext";
 import { inter } from "../assets/fonts/inter";
 import "../styles/index.css";
 
@@ -187,9 +188,17 @@ function MyApp({ Component, pageProps }: AppProps) {
             <StoreProvider>
                 <AuthErrorBoundary>
                     <SafeSuperTokensWrapper>
-                        <CopilotKit runtimeUrl="/api/copilotkit" agent={ADMIN_AGENT_NAME}>
-                            <Component {...pageProps} />
-                        </CopilotKit>
+                        <FigAgentProvider>
+                            <CopilotKit 
+                                runtimeUrl="/api/copilotkit" 
+                                agent={ADMIN_AGENT_NAME}
+                                properties={{
+                                    clientType: process.env.NEXT_PUBLIC_CLIENT_TYPE || "spreadsheet"
+                                }}
+                            >
+                                <Component {...pageProps} />
+                            </CopilotKit>
+                        </FigAgentProvider>
                     </SafeSuperTokensWrapper>
                 </AuthErrorBoundary>
             </StoreProvider>

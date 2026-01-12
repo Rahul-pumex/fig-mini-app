@@ -122,8 +122,6 @@ const CustomChatInput = (props: CustomChatInputProps) => {
         if (typeof window === "undefined") return;
 
         const handleSheetData = (event: MessageEvent) => {
-            // Log all messages for debugging
-            console.log('[Google Sheets] Received message:', event.data);
             
             // Accept messages from any origin when in iframe (you may want to restrict this in production)
             if (event.data && event.data.type === 'SHEET_DATA' && event.data.source === 'google-sheets') {

@@ -1,27 +1,120 @@
 import { AssistantMessageProps } from "@copilotkit/react-ui";
+import BallLoader from "../../atoms/BallLoader";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useMessageMapping } from "../../MessageMappingContext";
-import { useFigAgent, useResponsiveChatPadding } from "../../../hooks";
-import { GridSpinner } from "../../atoms/GridSpinner";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { ChartContainer } from "../../molecules/ChartContainer";
 import { ChartSqlPanel } from "../../molecules/ChartSqlPanel";
 import { Tabs } from "../../molecules/Tabs";
-import BallLoader from "../../atoms/BallLoader";
+import { GridSpinner } from "../../atoms/GridSpinner";
+import { useMessageMapping } from "../../MessageMappingContext";
+import { useFigAgent, useResponsiveChatPadding, useTableExport } from "../../../hooks";
+import StructuredMessageRenderer from "./StructuredMessageRenderer";
+import WebRenderPayloadRenderer from "./WebRenderPayloadRenderer";
+import SpreadsheetRenderPayloadRenderer from "./SpreadsheetRenderPayloadRenderer";
+import { parseStructuredMessage } from "@/utils/parseStructuredMessage";
+import type { WebRenderPayload, SpreadsheetRenderPayload } from "@/types";
+
+// Base markdown components (will be extended with table wrapper in component)
+const baseMarkdownComponents = {
+    h1: (props: any) => <h1 className="my-1.5 text-xl font-bold text-black" {...props} />,
+    h2: (props: any) => <h2 className="my-1.5 text-lg font-semibold text-black" {...props} />,
+    p: (props: any) => <p className="text-sm text-black" {...props} />,
+    ul: (props: any) => <ul className="list-disc pl-10 text-black" {...props} />,
+    ol: (props: any) => <ol className="list-decimal pl-10 text-black" {...props} />,
+    li: (props: any) => <li className="text-black" {...props} />,
+    code: (props: any) => (
+        <pre className="overflow-x-auto rounded bg-gray-100 p-2">
+            <code {...props} />
+        </pre>
+    ),
+    th: (props: any) => (
+        <th
+            className="bg-gray-100 px-3 py-2 text-left text-sm font-semibold text-black"
+            style={{ border: "1px solid #e4e4e4" }}
+            {...props}
+        />
+    ),
+    td: (props: any) => <td className="px-3 py-2 text-sm text-black" style={{ border: "1px solid #e4e4e4" }} {...props} />,
+    tr: (props: any) => <tr className="hover:bg-white" {...props} />,
+    tbody: (props: any) => <tbody {...props} />
+};
 
 const CustomAssistantMessage = (props: AssistantMessageProps) => {
     const { message, isLoading, subComponent } = props;
     // useMessageMapping now returns safe defaults if provider isn't available
     const { getUserIdForAssistant, getLastUserMessageId, addMapping } = useMessageMapping();
     const { threadInfo } = useFigAgent();
-    const contentRef = useRef<HTMLDivElement | null>(null);
-    const tableIndexRef = useRef(0);
-    const exportTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-    const [hasTable, setHasTable] = useState(false);
-    const [exportingTableIndex, setExportingTableIndex] = useState<number | null>(null);
     // Get responsive padding based on chat container width
     const horizontalPadding = useResponsiveChatPadding();
+
+    // Refs for table export functionality
+    const contentRef = useRef<HTMLDivElement | null>(null);
+    const tableIndexRef = useRef(0);
+
+    // Use the table export hook
+    const { exportTable, isExporting } = useTableExport();
+
+    // State for table detection
+    const [hasTable, setHasTable] = useState(false);
+
+    // Skip rendering empty assistant messages (e.g., from __DISCOVER__ trigger)
+    // These are placeholder responses that shouldn't display anything
+    const messageContent = typeof message === "string" ? message : "";
+    if (!messageContent && !isLoading) {
+        return null;
+    }
+
+    // Handle export to Google Sheets functionality
+    const handleSendTableToSheet = (event: React.MouseEvent<HTMLButtonElement>) => {
+        const button = event.currentTarget;
+        const tableWrapper = button.closest('div.my-3') as HTMLElement;
+        if (!tableWrapper) {
+            console.warn("Table wrapper not found");
+            return;
+        }
+
+        const table = tableWrapper.querySelector('table') as HTMLTableElement;
+        if (!table) {
+            console.warn("Table not found in wrapper");
+            return;
+        }
+
+        const container = contentRef.current;
+        if (!container) return;
+
+        const allTables = Array.from(container.querySelectorAll("table"));
+        const actualIndex = allTables.indexOf(table);
+
+        if (actualIndex === -1) {
+            console.warn("Could not determine table index");
+            return;
+        }
+
+        const rows = Array.from(table.rows).map((row) =>
+            Array.from(row.cells).map((cell) => cell.innerText.replace(/\s+/g, " ").trim())
+        );
+
+        exportTable({
+            tableName: `Table ${actualIndex + 1}`,
+            rows
+        }, `markdown-table-${actualIndex}`);
+    };
+
+    // Detect tables in content and reset table index
+    useEffect(() => {
+        const container = contentRef.current;
+        if (!container) {
+            setHasTable(false);
+            return;
+        }
+
+        const containsTable = container.querySelector("table") !== null;
+        setHasTable(containsTable);
+
+        // Reset table index counter when message changes
+        tableIndexRef.current = 0;
+    }, [message, isLoading]);
     
     // Get assistant message ID
     const rawData = (props as any)?.rawData;
@@ -52,9 +145,9 @@ const CustomAssistantMessage = (props: AssistantMessageProps) => {
                     if (userMessages.length > 0) {
                         const lastUserMessage = userMessages[userMessages.length - 1];
                         // Try to get ID from the element or its parent
-                        const userIdFromDom = (lastUserMessage as HTMLElement)?.id || 
-                                            (lastUserMessage as HTMLElement)?.getAttribute?.('data-message-id') ||
-                                            (lastUserMessage.parentElement as HTMLElement | null)?.id;
+                        const userIdFromDom = (lastUserMessage as any)?.id || 
+                                            (lastUserMessage as any)?.getAttribute?.('data-message-id') ||
+                                            (lastUserMessage.parentElement as any)?.id;
                         if (userIdFromDom) {
                             lastUserId = userIdFromDom;
                         }
@@ -76,42 +169,6 @@ const CustomAssistantMessage = (props: AssistantMessageProps) => {
         }
     }, [assistantId, userMessageId, getLastUserMessageId, addMapping]);
     
-
-    useEffect(() => {
-        // Listen for write response from Google Sheets
-        const handleWriteResponse = (event: MessageEvent) => {
-            if (event.data && event.data.type === 'WRITE_SHEET_RESPONSE' && event.data.source === 'google-sheets') {
-                // Clear any pending timeout
-                if (exportTimeoutRef.current) {
-                    clearTimeout(exportTimeoutRef.current);
-                    exportTimeoutRef.current = null;
-                }
-                
-                setExportingTableIndex(null);
-                
-                const payload = event.data.payload;
-                
-                if (payload.success) {
-                    // Show success notification
-                    console.log(`✓ Successfully wrote table to Google Sheets!`);
-                } else {
-                    // Show error notification
-                    console.warn(`✗ Failed to write to Google Sheets: ${payload.message || 'Unknown error'}`);
-                }
-            }
-        };
-    
-        window.addEventListener('message', handleWriteResponse);
-    
-        return () => {
-            window.removeEventListener('message', handleWriteResponse);
-            // Clean up timeout on unmount
-            if (exportTimeoutRef.current) {
-                clearTimeout(exportTimeoutRef.current);
-            }
-        };
-    }, []);
-
     
     // Keep currentMessageId for backward compatibility if needed
     const currentMessageId = useMemo(() => {
@@ -127,6 +184,90 @@ const CustomAssistantMessage = (props: AssistantMessageProps) => {
     
     const [chartTab, setChartTab] = useState<"sql" | "charts">("charts");
     const [showLoader, setShowLoader] = useState(true);
+
+    const displayMessage = typeof message === "string" ? message : "";
+
+    // Check client_type to determine rendering mode
+    const clientType = threadInfo?.client_type || "spreadsheet";
+    const isSpreadsheetMode = clientType === "spreadsheet";
+
+    // New architecture: Check for render_spreadsheet first if in spreadsheet mode
+    // render_spreadsheet contains markdown tables optimized for copy/paste
+    const renderSpreadsheet: SpreadsheetRenderPayload | undefined = useMemo(() => {
+        if (!isSpreadsheetMode) return undefined;
+        const spreadsheetPayload = threadInfo?.render_spreadsheet;
+        if (!spreadsheetPayload || !spreadsheetPayload.tables || spreadsheetPayload.tables.length === 0) {
+            return undefined;
+        }
+        return spreadsheetPayload;
+    }, [isSpreadsheetMode, threadInfo?.render_spreadsheet]);
+
+    const hasRenderSpreadsheet = !!renderSpreadsheet;
+
+    // New architecture: Check for render_web in state (for web mode)
+    // render_web is now a list with message_id for per-message filtering
+    // render_web contains structured UI components (tiles, tables, insights)
+    // AIMessage.content contains human-readable markdown
+    const allRenderWeb = Array.isArray(threadInfo?.render_web) ? threadInfo.render_web : [];
+
+    // Filter render_web by message_id (similar to how charts are filtered)
+    const renderWeb: WebRenderPayload | undefined = useMemo(() => {
+        // Skip render_web if we have render_spreadsheet
+        if (hasRenderSpreadsheet) return undefined;
+        if (allRenderWeb.length === 0) return undefined;
+        
+        const messageIdToUse = userMessageId || currentMessageId;
+        
+        // First, try to find exact message_id match
+        if (messageIdToUse) {
+            const matched = allRenderWeb.find((p: WebRenderPayload) => p.message_id === messageIdToUse);
+            if (matched) return matched;
+        }
+        
+        // Fallback: In spreadsheet mode, if no match found, use the most recent render_web entry
+        // This handles cases where message_id mapping hasn't been established yet
+        if (isSpreadsheetMode && allRenderWeb.length > 0) {
+            // Return the last entry (most recent)
+            return allRenderWeb[allRenderWeb.length - 1];
+        }
+        
+        return undefined;
+    }, [allRenderWeb, userMessageId, currentMessageId, hasRenderSpreadsheet, isSpreadsheetMode]);
+
+    const renderWebHasContent = !!renderWeb && (
+        (renderWeb.tiles && renderWeb.tiles.length > 0) ||
+        (renderWeb.blocks && renderWeb.blocks.length > 0) ||
+        (renderWeb.insights && renderWeb.insights.length > 0) ||
+        (renderWeb.next_actions && renderWeb.next_actions.length > 0)
+    );
+
+    // Only show render_web if:
+    // 1. render_web has content
+    // 2. AND either this message is not loading OR has actual content
+    // 3. AND we don't have render_spreadsheet (spreadsheet takes priority)
+    // This prevents showing stale render_web from previous response on a new loading message
+    const hasRenderWeb = renderWebHasContent && (!isLoading || displayMessage.length > 0) && !hasRenderSpreadsheet;
+
+
+    // Legacy: Parse structured message from JSON in message content
+    // This is kept for backward compatibility with old message format
+    const structuredParse = useMemo(() => {
+        // Skip legacy parsing if we have render_spreadsheet or render_web
+        if (hasRenderSpreadsheet || hasRenderWeb) {
+            return { payload: null, error: null, fallbackText: null };
+        }
+        return parseStructuredMessage(displayMessage);
+    }, [displayMessage, hasRenderSpreadsheet, hasRenderWeb]);
+    const structuredPayload = structuredParse.payload;
+    const structuredError = structuredParse.error;
+    const structuredFallbackText = structuredParse.fallbackText;
+
+
+    useEffect(() => {
+        if (structuredError) {
+            console.warn("Structured render fallback:", structuredError);
+        }
+    }, [structuredError]);
     
     // Use userMessageId to filter charts and texts since they are associated with user messages
     const derivedState = useMemo(() => {
@@ -142,16 +283,16 @@ const CustomAssistantMessage = (props: AssistantMessageProps) => {
         // If there's no messageIdToUse, don't show any charts/texts (return empty arrays)
         // If a chart/text doesn't have a message_id field, exclude it to prevent showing for all messages
         const filteredCharts = messageIdToUse
-            ? allCharts.filter((chart) => {
+            ? allCharts.filter((chart: any) => {
                 // Only include charts that have a message_id and it matches
-                return (chart as { message_id?: string }).message_id && (chart as { message_id?: string }).message_id === messageIdToUse;
+                return chart.message_id && chart.message_id === messageIdToUse;
             })
             : [];
         
         const filteredTexts = messageIdToUse
-            ? allTexts.filter((text) => {
+            ? allTexts.filter((text: any) => {
                 // Only include texts that have a message_id and it matches
-                return (text as { message_id?: string }).message_id && (text as { message_id?: string }).message_id === messageIdToUse;
+                return text.message_id && text.message_id === messageIdToUse;
             })
             : [];
 
@@ -182,110 +323,11 @@ const CustomAssistantMessage = (props: AssistantMessageProps) => {
     }, [derivedState.hasCharts]);
     
     const shouldShowLoader = showLoader;
-    const tabData: Array<[string, string]> = [
+    const tabData: [string, string][] = [
         ["sql", "Chart SQL"],
         ["charts", "Charts"]
     ];
     
-    const handleTabChange = (tab: string) => {
-        setChartTab(tab as "sql" | "charts");
-    };
-    
-    const handleSendTableToSheet = (event: React.MouseEvent<HTMLButtonElement>) => {
-        // Find the table by traversing from the button
-        const button = event.currentTarget;
-        // Find the parent wrapper div that contains both table and button
-        const tableWrapper = button.closest('div.my-3') as HTMLElement;
-        if (!tableWrapper) {
-            console.warn("Table wrapper not found");
-            return;
-        }
-        
-        const table = tableWrapper.querySelector('table') as HTMLTableElement;
-        if (!table) {
-            console.warn("Table not found in wrapper");
-            return;
-        }
-
-        // Find the actual index of this table in the DOM
-        const container = contentRef.current;
-        if (!container) return;
-
-        const allTables = Array.from(container.querySelectorAll("table"));
-        const actualIndex = allTables.indexOf(table);
-        
-        if (actualIndex === -1) {
-            console.warn("Could not determine table index");
-            return;
-        }
-
-        // Prevent multiple simultaneous exports
-        if (exportingTableIndex !== null) {
-            console.warn("Export already in progress, please wait...");
-            return;
-        }
-
-        const rows = Array.from(table.rows).map((row) =>
-            Array.from(row.cells).map((cell) => cell.innerText.replace(/\s+/g, " ").trim())
-        );
-
-        const tablePayload = [{
-            name: `Table ${actualIndex + 1}`,
-            rows
-        }];
-
-        // Console log the extracted data before sending to Excel
-        console.log("📊 Extracting table data for Excel export:", {
-            tableIndex: actualIndex + 1,
-            tableName: `Table ${actualIndex + 1}`,
-            rowCount: rows.length,
-            columnCount: rows[0]?.length || 0,
-            data: rows,
-            tablePayload: tablePayload
-        });
-
-        const message = {
-            type: "WRITE_SHEET_DATA",
-            source: "omniscop-chat",
-            payload: {
-                tables: tablePayload,
-                threadId: threadInfo?.threadId || null
-            }
-        };
-
-        if (typeof window !== "undefined" && window.parent && window.parent !== window) {
-            // Clear any existing timeout
-            if (exportTimeoutRef.current) {
-                clearTimeout(exportTimeoutRef.current);
-            }
-            
-            setExportingTableIndex(actualIndex);
-            window.parent.postMessage(message, "*");
-            
-            // Fallback timeout in case response doesn't come back (increase to 5 seconds)
-            exportTimeoutRef.current = setTimeout(() => {
-                console.warn("Export timeout - resetting state");
-                setExportingTableIndex(null);
-                exportTimeoutRef.current = null;
-            }, 5000);
-        } else {
-            console.warn("Cannot export: not running inside the expected host/iframe.");
-        }
-    };
-
-    useEffect(() => {
-        const container = contentRef.current;
-        if (!container) {
-            setHasTable(false);
-            return;
-        }
-        const containsTable = container.querySelector("table") !== null;
-        setHasTable(containsTable);
-        
-        // Reset table index counter when message changes
-        tableIndexRef.current = 0;
-    }, [message, isLoading]);
-
     const renderChartContent = () => {
         if (!derivedState.hasCharts && !shouldShowLoader) return null;
 
@@ -305,41 +347,91 @@ const CustomAssistantMessage = (props: AssistantMessageProps) => {
     };
 
     return (
-        <div 
-            style={{ 
-                padding: '2px',
-                marginBottom: '2px'
-            }}
-        >
+        <div className={`py-6 ${horizontalPadding}`}>
             <div className="flex items-start">
-                <div className="w-full wrap-break-word whitespace-pre-line text-black" style={{ overflowY: 'visible' }}>
-                    {message && (
+                <div className="w-full overflow-x-auto overflow-y-visible break-words whitespace-pre-line text-black">
+                    {structuredError && (
+                        <div className="mb-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                            We had trouble rendering this response. Here is a short summary instead.
+                        </div>
+                    )}
+                    {/* New architecture: Check for render_spreadsheet first (spreadsheet mode) */}
+                    {hasRenderSpreadsheet ? (
+                        <div>
+                            {/* Show ONLY the SpreadsheetRenderPayloadRenderer for spreadsheet mode */}
+                            <SpreadsheetRenderPayloadRenderer payload={renderSpreadsheet!} />
+                        </div>
+                    ) : hasRenderWeb ? (
+                        /* New architecture: render_web in state - show ONLY structured UI when available */
+                        <div>
+                            {/* Show ONLY the structured WebRenderPayloadRenderer - no markdown duplication */}
+                            <WebRenderPayloadRenderer
+                                payload={renderWeb!}
+                                charts={derivedState.charts}
+                            />
+                        </div>
+                    ) : structuredPayload ? (
+                        /* Legacy: structured JSON in message content */
+                        <StructuredMessageRenderer payload={structuredPayload} charts={derivedState.charts} />
+                    ) : structuredError ? (
+                        <div className="rounded border border-[#e4e4e4] bg-white p-4 text-gray-700">
+                            <div className="prose prose-sm max-w-none" ref={contentRef}>
+                                <ReactMarkdown
+                                    remarkPlugins={[remarkGfm]}
+                                    components={{
+                                        ...baseMarkdownComponents,
+                                        table: (props) => {
+                                            const currentIndex = tableIndexRef.current;
+                                            tableIndexRef.current += 1;
+
+                                            return (
+                                                <div className="my-3" style={{ width: '100%' }}>
+                                                    <div style={{ overflowX: 'auto', overflowY: 'visible', width: '100%' }}>
+                                                        <table
+                                                            className="border-collapse text-sm text-black"
+                                                            style={{ borderSpacing: 0, minWidth: '100%' }}
+                                                            {...props}
+                                                        />
+                                                    </div>
+                                                    {!isLoading && (
+                                                        <div className="flex justify-end" style={{ marginTop: '8px' }}>
+                                                            <button
+                                                                type="button"
+                                                                onClick={handleSendTableToSheet}
+                                                                disabled={isExporting(`markdown-table-${currentIndex}`)}
+                                                                className="inline-flex items-center gap-1.5 rounded-md bg-black text-xs font-semibold text-white transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-70"
+                                                                style={{ padding: '4px 8px' }}
+                                                            >
+                                                                {isExporting(`markdown-table-${currentIndex}`) ? "Exporting…" : "Export to Sheet"}
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        }
+                                    }}
+                                >
+                                    {structuredFallbackText || "We could not render this response. Please ask a follow-up question."}
+                                </ReactMarkdown>
+                            </div>
+                        </div>
+                    ) : (
                         <div className="prose prose-sm max-w-none" ref={contentRef}>
                             <ReactMarkdown
                                 remarkPlugins={[remarkGfm]}
                                 components={{
-                                    h1: (props) => <h1 className="my-1 text-base font-bold text-black" {...props} />,
-                                    h2: (props) => <h2 className="my-1 text-sm font-semibold text-black" {...props} />,
-                                    p: (props) => <p className="text-xs text-black leading-relaxed" {...props} />,
-                                    ul: (props) => <ul className="list-disc pl-6 text-xs text-black" {...props} />,
-                                    ol: (props) => <ol className="list-decimal pl-6 text-xs text-black" {...props} />,
-                                    li: (props) => <li className="text-xs text-black" {...props} />,
-                                    code: (props) => (
-                                        <pre className="overflow-x-auto rounded bg-gray-100 p-1.5 text-xs">
-                                            <code {...props} />
-                                        </pre>
-                                    ),
+                                    ...baseMarkdownComponents,
                                     table: (props) => {
                                         const currentIndex = tableIndexRef.current;
                                         tableIndexRef.current += 1;
-                                        
+
                                         return (
                                             <div className="my-3" style={{ width: '100%' }}>
                                                 <div style={{ overflowX: 'auto', overflowY: 'visible', width: '100%' }}>
-                                                    <table 
-                                                        className="border-collapse text-xs text-black" 
-                                                        style={{ borderSpacing: 0, minWidth: '100%' }} 
-                                                        {...props} 
+                                                    <table
+                                                        className="border-collapse text-sm text-black"
+                                                        style={{ borderSpacing: 0, minWidth: '100%' }}
+                                                        {...props}
                                                     />
                                                 </div>
                                                 {!isLoading && (
@@ -347,50 +439,40 @@ const CustomAssistantMessage = (props: AssistantMessageProps) => {
                                                         <button
                                                             type="button"
                                                             onClick={handleSendTableToSheet}
-                                                            disabled={exportingTableIndex === currentIndex}
+                                                            disabled={isExporting(`markdown-table-${currentIndex}`)}
                                                             className="inline-flex items-center gap-1.5 rounded-md bg-black text-xs font-semibold text-white transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-70"
-                                                            style={{ padding: '2px 6px' }}
+                                                            style={{ padding: '4px 8px' }}
                                                         >
-                                                            {exportingTableIndex === currentIndex ? "Exporting…" : "Export to Sheet"}
+                                                            {isExporting(`markdown-table-${currentIndex}`) ? "Exporting…" : "Export to Sheet"}
                                                         </button>
                                                     </div>
                                                 )}
                                             </div>
                                         );
-                                    },
-                                    th: (props) => (
-                                        <th
-                                            className="bg-gray-100 px-2 py-1.5 text-left text-xs font-semibold text-black"
-                                            style={{ border: "1px solid #e4e4e4" }}
-                                            {...props}
-                                        />
-                                    ),
-                                    td: (props) => <td className="px-2 py-1.5 text-xs text-black" style={{ border: "1px solid #e4e4e4" }} {...props} />,
-                                    tr: (props) => <tr className="hover:bg-white" {...props} />,
-                                    tbody: (props) => <tbody {...props} />
+                                    }
                                 }}
                             >
-                                {message}
+                                {displayMessage}
                             </ReactMarkdown>
                         </div>
                     )}
 
                     {isLoading && (
-                        <div className="mt-1.5 flex items-center gap-2 text-gray-500 py-1.5 px-1" style={{ overflow: 'hidden' }}>
+                        <div className="mt-2 flex items-center gap-2 text-gray-500 py-2 px-1 overflow-visible">
                             <BallLoader />
                         </div>
                     )}
                 </div>
             </div>
 
-
-            {subComponent && <div className="my-1.5">{subComponent}</div>}
+            {subComponent && <div className="my-2">{subComponent}</div>}
             
-            {(derivedState.hasCharts || derivedState.hasTexts) && !isLoading && message && (
-                <div className="mt-4 w-full">
-                    <div className="relative mb-3 flex w-full items-center justify-between">
+            {/* Don't show charts/texts in spreadsheet mode - only show markdown tables */}
+            {!hasRenderSpreadsheet && !hasRenderWeb && !structuredPayload && (derivedState.hasCharts || derivedState.hasTexts) && !isLoading && displayMessage && (
+                <div className="mt-6 w-full">
+                    <div className="relative mb-4 flex w-full items-center justify-between">
                         {derivedState.hasCharts && (
-                            <Tabs data={tabData} activeTab={chartTab} setActiveTab={handleTabChange} />
+                            <Tabs data={tabData} activeTab={chartTab} setActiveTab={(tab) => setChartTab(tab as "sql" | "charts")} />
                         )}
                     </div>
                     <div className="relative z-10">

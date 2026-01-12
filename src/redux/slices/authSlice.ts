@@ -1,12 +1,6 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 
-interface User {
-    userId: string;
-    email?: string;
-    username?: string;
-}
-
-interface Tokens {
+export interface AuthTokens {
     accessToken: string;
     refreshToken: string;
     accessTokenExpiry: number;
@@ -14,15 +8,29 @@ interface Tokens {
     sessionId: string;
 }
 
+export interface UserData {
+    userId: string;
+    emails: string[];
+    username?: string;
+    tenantId: string;
+    userRoles: string[];
+    onboarding_status: {
+        onboarded: boolean;
+        initialChoice: boolean;
+    };
+}
+
 interface AuthState {
-    user: User | null;
-    tokens: Tokens | null;
+    tokens: AuthTokens | null;
+    user: UserData | null;
+    isAuthenticated: boolean;
     isLoading: boolean;
 }
 
 const initialState: AuthState = {
-    user: null,
     tokens: null,
+    user: null,
+    isAuthenticated: false,
     isLoading: false
 };
 
@@ -30,33 +38,29 @@ const authSlice = createSlice({
     name: "auth",
     initialState,
     reducers: {
-        setUser: (state, action: PayloadAction<User>) => {
+        setTokens: (state, action: PayloadAction<AuthTokens>) => {
+            state.tokens = action.payload;
+            state.isAuthenticated = true;
+        },
+        setUser: (state, action: PayloadAction<UserData>) => {
             state.user = action.payload;
         },
-        setTokens: (state, action: PayloadAction<Tokens>) => {
-            state.tokens = action.payload;
-        },
-        updateAccessToken: (
-            state,
-            action: PayloadAction<{ accessToken: string; accessTokenExpiry: number }>
-        ) => {
-            if (state.tokens) {
-                state.tokens.accessToken = action.payload.accessToken;
-                state.tokens.accessTokenExpiry = action.payload.accessTokenExpiry;
-            }
+        clearAuth: (state) => {
+            state.tokens = null;
+            state.user = null;
+            state.isAuthenticated = false;
         },
         setLoading: (state, action: PayloadAction<boolean>) => {
             state.isLoading = action.payload;
         },
-        clearAuth: (state) => {
-            state.user = null;
-            state.tokens = null;
-            state.isLoading = false;
+        updateAccessToken: (state, action: PayloadAction<{ accessToken: string; accessTokenExpiry: number }>) => {
+            if (state.tokens) {
+                state.tokens.accessToken = action.payload.accessToken;
+                state.tokens.accessTokenExpiry = action.payload.accessTokenExpiry;
+            }
         }
     }
 });
 
-export const { setUser, setTokens, updateAccessToken, setLoading, clearAuth } = authSlice.actions;
+export const { setTokens, setUser, clearAuth, setLoading, updateAccessToken } = authSlice.actions;
 export default authSlice.reducer;
-
-

@@ -36,21 +36,13 @@ EXPOSE 8080
 ENV NODE_ENV=production
 ENV PORT=8080
 
-# Environment variables for Next.js app (can be overridden at runtime)
-# These should be set via docker run -e or docker-compose
-ARG NEXT_PUBLIC_AUTH_DOMAIN
-ARG NEXT_PUBLIC_APP_NAME
-ARG NEXT_PUBLIC_SUBSCRIPTION_TYPE
+
+ARG NEXT_PUBLIC_AUTH_DOMAIN 
 ARG COPILOT_BACKEND_URL
 
 ENV NEXT_PUBLIC_AUTH_DOMAIN=$NEXT_PUBLIC_AUTH_DOMAIN
-ENV NEXT_PUBLIC_APP_NAME=$NEXT_PUBLIC_APP_NAME
-ENV NEXT_PUBLIC_SUBSCRIPTION_TYPE=$NEXT_PUBLIC_SUBSCRIPTION_TYPE
 ENV COPILOT_BACKEND_URL=$COPILOT_BACKEND_URL
 
-# Add healthcheck
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:$PORT/ || exit 1
 
 # Start the application
 # Note: Next.js start command uses -p flag, but PORT env var takes precedence

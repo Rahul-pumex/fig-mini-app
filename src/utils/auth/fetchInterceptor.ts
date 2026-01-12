@@ -2,6 +2,7 @@ import { setUser } from "@redux/slices/authSlice";
 import { getTokenExpiry } from "./authConfig";
 import { AuthService } from "./authService";
 import { store } from "@redux/store";
+import { redirectToAuth } from "./redirectUtils";
 import { useEffect } from "react";
 
 /**
@@ -44,34 +45,72 @@ export const useFetchInterceptor = () => {
                 }
             }
 
-            const response = await originalFetch(url, modifiedOptions);
+            let response = await originalFetch(url, modifiedOptions);
 
             // Handle 401 Unauthorized responses - token expired or invalid
             if (response.status === 401) {
                 const urlString = typeof url === "string" ? url : url.toString();
                 
-                // Don't redirect on auth endpoints to avoid loops
+                // Don't handle auth endpoints to avoid loops
                 const isAuthEndpoint = urlString.includes("/api/auth/") || 
                                       urlString.includes("/auth/") ||
                                       urlString.includes("signin") ||
                                       urlString.includes("signup");
                 
                 if (!isAuthEndpoint) {
-                    console.warn("[FetchInterceptor] 401 Unauthorized received, clearing tokens and redirecting to login", {
+                    console.warn("[FetchInterceptor] 401 Unauthorized received, attempting token refresh", {
                         url: urlString,
                         pathname: typeof window !== "undefined" ? window.location.pathname : "unknown"
                     });
                     
-                    // Clear all tokens
-                    AuthService.clearAllTokens();
-                    
-                    // Redirect to login page if not already there
-                    if (typeof window !== "undefined" && !window.location.pathname.includes("/auth")) {
-                        console.log("[FetchInterceptor] Redirecting to /auth due to 401");
-                        // Use setTimeout to avoid interrupting the current response handling
-                        setTimeout(() => {
-                            window.location.href = "/auth";
-                        }, 100);
+                    // Try to refresh tokens first (like main app)
+                    try {
+                        const refreshed = await AuthService.refreshSession();
+                        
+                        if (refreshed) {
+                            console.log("[FetchInterceptor] Token refresh succeeded, retrying request");
+                            
+                            // Get fresh tokens
+                            const newAccessToken = AuthService.getAccessToken();
+                            const newSessionId = AuthService.getSessionId();
+                            
+                            // Retry the original request with new tokens
+                            const retryOptions: RequestInit = {
+                                ...modifiedOptions,
+                                headers: {
+                                    ...(modifiedOptions.headers as Record<string, string> || {}),
+                                } as Record<string, string>
+                            };
+                            
+                            if (newAccessToken) {
+                                (retryOptions.headers as Record<string, string>)["Authorization"] = `Bearer ${newAccessToken}`;
+                            }
+                            
+                            if (newSessionId) {
+                                (retryOptions.headers as Record<string, string>)["x-session_id"] = newSessionId;
+                            }
+                            
+                            // Retry the request
+                            response = await originalFetch(url, retryOptions);
+                            
+                            // If retry also fails with 401, then redirect
+                            if (response.status === 401) {
+                                console.warn("[FetchInterceptor] Retry also returned 401, clearing tokens and redirecting");
+                                AuthService.clearAllTokens();
+                                redirectToAuth(true);
+                            }
+                            
+                            return response;
+                        } else {
+                            // Refresh failed, clear tokens and redirect
+                            console.warn("[FetchInterceptor] Token refresh failed, clearing tokens and redirecting");
+                            AuthService.clearAllTokens();
+                            redirectToAuth(true);
+                        }
+                    } catch (refreshError) {
+                        console.error("[FetchInterceptor] Refresh error:", refreshError);
+                        AuthService.clearAllTokens();
+                        redirectToAuth(true);
                     }
                 }
                 
@@ -126,8 +165,14 @@ export const useFetchInterceptor = () => {
                                     store.dispatch(
                                         setUser({
                                             userId: front.uid,
-                                            email: front.up?.email || undefined,
-                                            username: front.uid
+                                            emails: front.up?.email ? [front.up.email] : [],
+                                            username: front.uid,
+                                            tenantId: "",
+                                            userRoles: [],
+                                            onboarding_status: {
+                                                onboarded: false,
+                                                initialChoice: false
+                                            }
                                         })
                                     );
                                 }

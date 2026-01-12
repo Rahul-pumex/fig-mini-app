@@ -1,4 +1,5 @@
 export * from "./useAuth";
-export * from "./useFigAgent";
+export { useFigAgent } from "../contexts/FigAgentContext";
 export * from "./useResponsiveChatPadding";
+export * from "./useTableExport";
 
