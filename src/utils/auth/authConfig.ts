@@ -4,7 +4,7 @@ import Session from "supertokens-auth-react/recipe/session";
 import { jwtDecode } from "jwt-decode";
 import { store, persistor } from "@redux/store";
 import { setTokens, setUser } from "@redux/slices/authSlice";
-import { AuthService } from "./authService";
+import { AuthService, getTokenExpiry } from "./authService";
 
 const COMPANY_NAME = "OmniScop Mini";
 
@@ -16,19 +16,6 @@ if (typeof window !== "undefined") {
     // Server-side: use env variable or default
     websiteDomain = process.env.NEXT_PUBLIC_WEBSITE_DOMAIN || "http://localhost:3001";
 }
-
-export const getTokenExpiry = (token: string): number => {
-    try {
-        const decoded: any = jwtDecode(token);
-        if (decoded && decoded.exp) {
-            return decoded.exp * 1000;
-        }
-        return Date.now() + 3600000;
-    } catch (error) {
-        console.error("Failed to decode token:", error);
-        return Date.now() + 3600000;
-    }
-};
 
 // Helper function to get header value with case-insensitive lookup
 const getHeaderValue = (headers: Headers, headerName: string): string | null => {

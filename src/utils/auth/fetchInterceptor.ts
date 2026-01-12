@@ -1,6 +1,5 @@
 import { setUser } from "@redux/slices/authSlice";
-import { getTokenExpiry } from "./authConfig";
-import { AuthService } from "./authService";
+import { AuthService, getTokenExpiry } from "./authService";
 import { store } from "@redux/store";
 import { redirectToAuth } from "./redirectUtils";
 import { useEffect } from "react";
