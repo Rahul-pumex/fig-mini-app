@@ -42,6 +42,8 @@ const baseMarkdownComponents = {
 
 const CustomAssistantMessage = (props: AssistantMessageProps) => {
     const { message, isLoading, subComponent } = props;
+    
+    // ALL HOOKS MUST BE CALLED BEFORE ANY CONDITIONAL RETURNS
     // useMessageMapping now returns safe defaults if provider isn't available
     const { getUserIdForAssistant, getLastUserMessageId, addMapping } = useMessageMapping();
     const { threadInfo } = useFigAgent();
@@ -60,6 +62,7 @@ const CustomAssistantMessage = (props: AssistantMessageProps) => {
 
     // Skip rendering empty assistant messages (e.g., from __DISCOVER__ trigger)
     // These are placeholder responses that shouldn't display anything
+    // IMPORTANT: This check happens AFTER all hooks are called
     const messageContent = typeof message === "string" ? message : "";
     if (!messageContent && !isLoading) {
         return null;

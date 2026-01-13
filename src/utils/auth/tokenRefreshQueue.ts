@@ -71,14 +71,19 @@ class TokenRefreshQueue {
 
     /**
      * Clear the queue (for logout or error scenarios)
+     * Resolves pending requests with false instead of rejecting to avoid unhandled errors
      */
     public clear(): void {
         console.log("[RefreshQueue] Clearing queue");
         this.isRefreshing = false;
 
-        // Reject all pending requests
-        this.pendingRequests.forEach((request) => request.reject(new Error("Token refresh queue cleared")));
-        this.pendingRequests = [];
+        // Resolve all pending requests with false (refresh failed) instead of rejecting
+        // This prevents unhandled promise rejections when tokens are cleared during refresh
+        if (this.pendingRequests.length > 0) {
+            console.log(`[RefreshQueue] Resolving ${this.pendingRequests.length} pending requests with false (queue cleared)`);
+            this.pendingRequests.forEach((request) => request.resolve(false));
+            this.pendingRequests = [];
+        }
     }
 }
 

@@ -57,12 +57,9 @@ export const useFetchInterceptor = () => {
                                       urlString.includes("signup");
                 
                 if (!isAuthEndpoint) {
-                    console.warn("[FetchInterceptor] 401 Unauthorized received, attempting token refresh", {
-                        url: urlString,
-                        pathname: typeof window !== "undefined" ? window.location.pathname : "unknown"
-                    });
+                    console.warn("[FetchInterceptor] 401 Unauthorized - session expired, attempting token refresh");
                     
-                    // Try to refresh tokens first (like main app)
+                    // Try to refresh tokens first
                     try {
                         const refreshed = await AuthService.refreshSession();
                         
@@ -92,24 +89,30 @@ export const useFetchInterceptor = () => {
                             // Retry the request
                             response = await originalFetch(url, retryOptions);
                             
-                            // If retry also fails with 401, then redirect
+                            // If retry also fails with 401, session is truly expired
                             if (response.status === 401) {
-                                console.warn("[FetchInterceptor] Retry also returned 401, clearing tokens and redirecting");
+                                console.warn("[FetchInterceptor] Session expired - redirecting to login");
                                 AuthService.clearAllTokens();
-                                redirectToAuth(true);
+                                // Use setTimeout to redirect after current execution completes
+                                setTimeout(() => redirectToAuth(true), 0);
                             }
                             
                             return response;
                         } else {
-                            // Refresh failed, clear tokens and redirect
-                            console.warn("[FetchInterceptor] Token refresh failed, clearing tokens and redirecting");
+                            // Refresh failed - session expired after long inactivity
+                            console.warn("[FetchInterceptor] Session expired (refresh failed) - redirecting to login");
                             AuthService.clearAllTokens();
-                            redirectToAuth(true);
+                            // Use setTimeout to redirect after current execution completes
+                            setTimeout(() => redirectToAuth(true), 0);
                         }
                     } catch (refreshError) {
-                        console.error("[FetchInterceptor] Refresh error:", refreshError);
+                        // Suppress expected queue-cleared errors
+                        if (!(refreshError instanceof Error && refreshError.message === "Token refresh queue cleared")) {
+                            console.error("[FetchInterceptor] Refresh error:", refreshError);
+                        }
                         AuthService.clearAllTokens();
-                        redirectToAuth(true);
+                        // Use setTimeout to redirect after current execution completes
+                        setTimeout(() => redirectToAuth(true), 0);
                     }
                 }
                 

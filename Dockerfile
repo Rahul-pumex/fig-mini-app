@@ -46,5 +46,5 @@ ENV COPILOT_BACKEND_URL=$COPILOT_BACKEND_URL
 
 # Start the application
 # Note: Next.js start command uses -p flag, but PORT env var takes precedence
-CMD ["npm", "run", "start"]
+CMD ["npm", "run", "start", "--", "-p", "8080"]
 
