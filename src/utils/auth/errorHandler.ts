@@ -1,5 +1,5 @@
 import { AuthService } from "./authService";
-import { shouldRedirectToAuth, getErrorMessage, logError } from "./errorDetection";
+import { shouldRedirectToAuth, logError } from "./errorDetection";
 
 /**
  * Handles auth-related errors by cleaning up and redirecting if necessary
