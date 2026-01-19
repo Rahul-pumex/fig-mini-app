@@ -133,15 +133,44 @@ const ChatBoxContent: React.FC<ChatBoxContentProps> = ({ isCollapsed, setIsColla
     useEffect(() => {
         const chatContainer = chatContainerRef.current;
         if (!chatContainer) return;
+        let scrollTimeout: NodeJS.Timeout;
         const mutationObserver = new MutationObserver((mutations) => {
-            const hasNewContent = mutations.some((m) => m.type === "childList" && m.addedNodes.length > 0);
-            if (hasNewContent) {
-                // only auto-scroll if not locked
-                scrollToBottom(false);
+            let hasSignificantContent = false;
+            
+            for (const mutation of mutations) {
+                if (mutation.type === "childList" && mutation.addedNodes.length > 0) {
+                    for (let i = 0; i < mutation.addedNodes.length; i++) {
+                        const node = mutation.addedNodes[i] as HTMLElement;
+                        if (node.nodeType === Node.ELEMENT_NODE) {
+                            // Check if this is just a loader/spinner (small, minimal content)
+                            const isLoaderOnly = node.querySelector?.('[class*="BallLoader"], [class*="GridSpinner"], [class*="animate-spin"]') &&
+                                node.offsetHeight < 50 &&
+                                (!node.textContent || node.textContent.trim().length < 10);
+                            
+                            // If it's not just a loader, or if it has significant height/content, trigger scroll
+                            if (!isLoaderOnly || node.offsetHeight >= 50 || (node.textContent && node.textContent.trim().length >= 20)) {
+                                hasSignificantContent = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            if (hasSignificantContent) {
+                // Debounce scroll to prevent rapid-fire scrolling during loading
+                clearTimeout(scrollTimeout);
+                scrollTimeout = setTimeout(() => {
+                    // only auto-scroll if not locked
+                    scrollToBottom(false);
+                }, 100);
             }
         });
         mutationObserver.observe(chatContainer, { childList: true, subtree: true });
-        return () => mutationObserver.disconnect();
+        return () => {
+            clearTimeout(scrollTimeout);
+            mutationObserver.disconnect();
+        };
     }, [scrollToBottom]);
 
     useEffect(() => {

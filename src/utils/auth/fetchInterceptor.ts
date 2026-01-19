@@ -8,9 +8,14 @@ import { useEffect } from "react";
  * Fetch interceptor that automatically adds auth headers to API requests
  * This ensures CopilotKit and other API calls include authentication
  */
+
+// Flag to prevent multiple simultaneous redirects
+let isRedirecting = false;
+
 export const useFetchInterceptor = () => {
     useEffect(() => {
         const originalFetch = window.fetch;
+        isRedirecting = false; // Reset on mount
         
         window.fetch = async (url, options = {}) => {
             const modifiedOptions: RequestInit = {
@@ -50,6 +55,8 @@ export const useFetchInterceptor = () => {
             if (response.status === 401) {
                 const urlString = typeof url === "string" ? url : url.toString();
                 
+                console.log("[FetchInterceptor] Detected 401 for URL:", urlString);
+                
                 // Don't handle auth endpoints to avoid loops
                 const isAuthEndpoint = urlString.includes("/api/auth/") || 
                                       urlString.includes("/auth/") ||
@@ -57,7 +64,13 @@ export const useFetchInterceptor = () => {
                                       urlString.includes("signup");
                 
                 if (!isAuthEndpoint) {
-                    console.warn("[FetchInterceptor] 401 Unauthorized - session expired, attempting token refresh");
+                    // If already redirecting, return the 401 response immediately
+                    if (isRedirecting) {
+                        console.log("[FetchInterceptor] Already redirecting, returning 401 for:", urlString);
+                        return response;
+                    }
+                    
+                    console.warn("[FetchInterceptor] 401 Unauthorized - session expired, attempting token refresh for:", urlString);
                     
                     // Try to refresh tokens first
                     try {
@@ -92,6 +105,7 @@ export const useFetchInterceptor = () => {
                             // If retry also fails with 401, session is truly expired
                             if (response.status === 401) {
                                 console.warn("[FetchInterceptor] Session expired - redirecting to login");
+                                isRedirecting = true;
                                 AuthService.clearAllTokens();
                                 // Use setTimeout to redirect after current execution completes
                                 setTimeout(() => redirectToAuth(true), 0);
@@ -101,6 +115,7 @@ export const useFetchInterceptor = () => {
                         } else {
                             // Refresh failed - session expired after long inactivity
                             console.warn("[FetchInterceptor] Session expired (refresh failed) - redirecting to login");
+                            isRedirecting = true;
                             AuthService.clearAllTokens();
                             // Use setTimeout to redirect after current execution completes
                             setTimeout(() => redirectToAuth(true), 0);
@@ -110,6 +125,7 @@ export const useFetchInterceptor = () => {
                         if (!(refreshError instanceof Error && refreshError.message === "Token refresh queue cleared")) {
                             console.error("[FetchInterceptor] Refresh error:", refreshError);
                         }
+                        isRedirecting = true;
                         AuthService.clearAllTokens();
                         // Use setTimeout to redirect after current execution completes
                         setTimeout(() => redirectToAuth(true), 0);

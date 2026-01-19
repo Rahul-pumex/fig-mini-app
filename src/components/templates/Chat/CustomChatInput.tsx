@@ -404,7 +404,10 @@ const CustomChatInput = (props: CustomChatInputProps) => {
     };
 
     return (
-        <div className="sticky right-0 bottom-0 left-0 z-30 w-full bg-white border-t border-gray-200 shadow-lg">
+        <div 
+            className="sticky right-0 bottom-0 left-0 z-30 w-full bg-white border-t border-gray-200 shadow-lg" 
+            style={{ willChange: 'transform', transform: 'translateZ(0)' }}
+        >
             {/* Suggestions disabled in mini app */}
 
             <ContextBubble />
@@ -453,9 +456,12 @@ const CustomChatInput = (props: CustomChatInputProps) => {
                             }}
                             onWheel={handleTextareaWheel}
                             onFocus={() => {
-                                try {
-                                    textareaRef.current?.scrollIntoView({ block: "nearest" });
-                                } catch {}
+                                // Only scroll into view if not currently generating to prevent layout shifts
+                                if (!currentlyGenerating) {
+                                    try {
+                                        textareaRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+                                    } catch {}
+                                }
                                 setTimeout(() => {
                                     const el = textareaRef.current;
                                     if (!el) return;

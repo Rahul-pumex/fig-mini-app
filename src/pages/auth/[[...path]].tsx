@@ -41,8 +41,32 @@ export default function Auth() {
             sessionStorage.removeItem("auth_redirecting");
             sessionStorage.removeItem("auth_redirecting_time");
 
-            if (SuperTokens.canHandleRoute(PreBuiltUIList) === true) {
+            // Clear stale SuperTokens data that could cause auth conflicts
+            // This is critical when redirecting after session timeout
+            AuthService.clearConflictingSuperTokensData();
+
+            // Wait a bit for SuperTokens to initialize after clearing conflicting data
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            // Check if SuperTokens can handle the route
+            // This ensures SuperTokens is properly initialized before rendering
+            const canHandle = SuperTokens.canHandleRoute(PreBuiltUIList);
+            
+            if (canHandle === true) {
                 setLoaded(true);
+            } else {
+                // Retry after a short delay - SuperTokens might need more time to initialize
+                // This is especially important after a session timeout redirect
+                setTimeout(() => {
+                    const retryCanHandle = SuperTokens.canHandleRoute(PreBuiltUIList);
+                    if (retryCanHandle === true) {
+                        setLoaded(true);
+                    } else {
+                        // Final fallback: render anyway after timeout to prevent infinite loading
+                        // SuperTokens.getRoutingComponent will handle the route internally
+                        setLoaded(true);
+                    }
+                }, 200);
             }
         };
 
@@ -51,7 +75,7 @@ export default function Auth() {
 
     if (loaded) {
         return (
-            <div className="flex items-center justify-center min-h-screen w-full bg-gradient-to-b from-white via-[#F5F0F3] to-[#E8DDE3]" style={{ padding: '20px' }}>
+            <div className="flex items-center justify-center min-h-screen w-full bg-white" style={{ padding: '20px' }}>
                 <div className="w-full max-w-md flex items-center justify-center" style={{ padding: '32px' }}>
                     {SuperTokens.getRoutingComponent(PreBuiltUIList)}
                 </div>

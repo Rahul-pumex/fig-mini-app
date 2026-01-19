@@ -15,7 +15,7 @@ export interface AdminFlowAgentState {
     // Client-specific render payloads (new architecture)
     client_type?: "web" | "spreadsheet" | "figma" | string;
     render_web?: WebRenderPayload[];  // List with message_id for per-message filtering
-    render_spreadsheet?: SpreadsheetRenderPayload;
+    render_spreadsheet?: SpreadsheetRenderPayload | SpreadsheetRenderPayload[];  // Can be array or single object
 }
 
 export interface ChatBoxContentProps {
@@ -136,12 +136,20 @@ export interface WebRenderPayload {
 }
 
 export interface ChartSpec {
-    chart_id?: string;
-    message_id?: string;
-    type?: string;
-    title?: string;
+    chart_id: string;
+    chart_type: string;
+    datasets?: any;
+    labels?: string[];
+    options?: any;
     sql?: string;
+    series?: any[];
+    data?: any[];
+    backgroundColor?: string;
+    borderColor?: string;
+    message_id?: string;
+    title?: string;
     query?: string;
+    type?: string; // Legacy support
     [key: string]: any;
 }
 
@@ -168,6 +176,7 @@ export interface SpreadsheetRenderPayload {
     tables: MarkdownTable[];
     summary?: string;
     generated_at?: string;
+    message_id?: string;  // Associates payload with a specific user message/turn
 }
 
 // ============================================================================

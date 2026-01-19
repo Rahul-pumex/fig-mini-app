@@ -497,7 +497,7 @@ const ChartClient: React.FC<ChartClientProps> = (props) => {
         : undefined;
 
     return (
-        <div className="h-[400px] w-full">
+        <div className="h-full w-full" style={{ minHeight: '300px', maxHeight: '400px' }}>
             <Chart
                 type={type === "heatmap" ? "matrix" : type === "waterfall" ? "bar" : (type as keyof ChartTypeRegistry)}
                 data={chartDataForChartJS}

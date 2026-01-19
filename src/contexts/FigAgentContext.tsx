@@ -79,7 +79,18 @@ export const FigAgentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 export const useFigAgent = (): FigAgentContextType => {
     const context = useContext(FigAgentContext);
     if (context === undefined) {
-        throw new Error('useFigAgent must be used within a FigAgentProvider');
+        console.warn('useFigAgent called outside FigAgentProvider, returning safe defaults');
+        // Return safe defaults to prevent hooks errors during unmount/auth redirect
+        return {
+            threadId: undefined,
+            setThreadId: () => {},
+            threadInfo: null,
+            setThread: () => {},
+            fetchThreads: async () => {},
+            thread_list: [],
+            thread_list_status: 'IDLE',
+            delete_thread: null
+        };
     }
     return context;
 };

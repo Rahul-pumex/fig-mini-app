@@ -196,14 +196,44 @@ const CustomAssistantMessage = (props: AssistantMessageProps) => {
 
     // New architecture: Check for render_spreadsheet first if in spreadsheet mode
     // render_spreadsheet contains markdown tables optimized for copy/paste
+    // Note: render_spreadsheet can be either an array or a single object
+    // If array, filter by message_id (similar to render_web) to show correct data per message
     const renderSpreadsheet: SpreadsheetRenderPayload | undefined = useMemo(() => {
         if (!isSpreadsheetMode) return undefined;
-        const spreadsheetPayload = threadInfo?.render_spreadsheet;
+        const spreadsheetData = threadInfo?.render_spreadsheet;
+        if (!spreadsheetData) return undefined;
+        
+        // Get message_id to filter by (same as render_web filtering)
+        const messageIdToUse = userMessageId || currentMessageId;
+        
+        // Handle array case (backend sends as array with message_id for per-message filtering)
+        let spreadsheetPayload: SpreadsheetRenderPayload | undefined;
+        if (Array.isArray(spreadsheetData)) {
+            // Only return payload if we have an exact message_id match
+            // If no match, return undefined so message content is shown instead
+            if (messageIdToUse) {
+                const matched = spreadsheetData.find((p: SpreadsheetRenderPayload) => p.message_id === messageIdToUse);
+                if (matched) {
+                    spreadsheetPayload = matched;
+                } else {
+                    // No match found for this message_id - return undefined to show message content
+                    return undefined;
+                }
+            } else {
+                // No message_id available - return undefined to show message content
+                return undefined;
+            }
+        } else {
+            // Handle single object case (legacy format without message_id filtering)
+            spreadsheetPayload = spreadsheetData as SpreadsheetRenderPayload;
+        }
+        
+        // Validate payload has tables
         if (!spreadsheetPayload || !spreadsheetPayload.tables || spreadsheetPayload.tables.length === 0) {
             return undefined;
         }
         return spreadsheetPayload;
-    }, [isSpreadsheetMode, threadInfo?.render_spreadsheet]);
+    }, [isSpreadsheetMode, threadInfo?.render_spreadsheet, userMessageId, currentMessageId]);
 
     const hasRenderSpreadsheet = !!renderSpreadsheet;
 

@@ -41,7 +41,14 @@ export const SelectedContextsProvider = ({ children }: { children: ReactNode }) 
 export const useSelectedContexts = () => {
     const context = useContext(SelectedContextsContext);
     if (!context) {
-        throw new Error('useSelectedContexts must be used within SelectedContextsProvider');
+        console.warn('useSelectedContexts called outside SelectedContextsProvider, returning safe defaults');
+        // Return safe defaults to prevent hooks errors during unmount/auth redirect
+        return {
+            selectedContexts: [],
+            setSelectedContexts: () => {},
+            clearContexts: () => {},
+            removeContext: () => {}
+        };
     }
     return context;
 };

@@ -175,10 +175,26 @@ export const initAuth = () => {
                 })
             );
 
-            // Session recipe with signOut override
+            // Session recipe with signOut override and event handler
             dynamicRecipes.push(
                 Session.init({
                     tokenTransferMethod: "header",
+                    onHandleEvent: (context) => {
+                        // Handle session-related events from SuperTokens
+                        if (context.action === "UNAUTHORISED") {
+                            console.warn("[Session] UNAUTHORISED event - session refresh failed after retries, redirecting to /auth");
+                            AuthService.clearAllTokens();
+                            // Use setTimeout to defer redirect until after current execution completes
+                            // This prevents interrupting React's render cycle
+                            setTimeout(() => {
+                                if (typeof window !== "undefined" && !window.location.pathname.includes("/auth")) {
+                                    window.location.href = "/auth";
+                                }
+                            }, 0);
+                        } else if (context.action === "SESSION_ALREADY_EXISTS") {
+                            console.log("[Session] Session already exists");
+                        }
+                    },
                     override: {
                         functions: (originalImplementation) => {
                             return {

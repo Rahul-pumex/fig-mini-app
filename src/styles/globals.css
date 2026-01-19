@@ -98,3 +98,13 @@ h1, h2, h3, h4, h5, h6, p, ul, ol, figure, blockquote {
   padding: 0 !important;
 }
 
+/* Hide scrollbar on auth page container */
+.auth-scroll-container {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+}
+
+.auth-scroll-container::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
+}
+
