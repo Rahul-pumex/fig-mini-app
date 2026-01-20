@@ -75,7 +75,7 @@ export default function Auth() {
 
     if (loaded) {
         return (
-            <div className="flex items-center justify-center min-h-screen w-full bg-white" style={{ padding: '20px' }}>
+            <div className="flex items-center justify-center min-h-screen w-full bg-white" >
                 <div className="w-full max-w-md flex items-center justify-center" style={{ padding: '32px' }}>
                     {SuperTokens.getRoutingComponent(PreBuiltUIList)}
                 </div>
