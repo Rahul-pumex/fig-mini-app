@@ -1,5 +1,6 @@
 import { AuthService } from "./authService";
 import { shouldRedirectToAuth, logError } from "./errorDetection";
+import { redirectToAuth } from "./redirectUtils";
 
 /**
  * Handles auth-related errors by cleaning up and redirecting if necessary
@@ -15,12 +16,13 @@ export async function handleNoSessionError(error: Error): Promise<void> {
         console.log("[ErrorHandler] User not authenticated, clearing tokens");
         AuthService.clearAllTokens();
 
-        // Only redirect if we're not already on the auth page
-        // Use setTimeout to avoid interrupting React's render cycle
+        // Use the centralized redirect function which prevents multiple simultaneous redirects
+        // This prevents hooks errors caused by multiple unmount/remount cycles
         if (typeof window !== "undefined" && !window.location.pathname.includes("/auth")) {
             console.log("[ErrorHandler] Redirecting to /auth");
+            // Use setTimeout to avoid interrupting React's render cycle
             setTimeout(() => {
-                window.location.href = "/auth";
+                redirectToAuth(false);
             }, 0);
         }
     } else {

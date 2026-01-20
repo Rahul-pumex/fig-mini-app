@@ -237,6 +237,24 @@ const CustomAssistantMessage = (props: AssistantMessageProps) => {
 
     const hasRenderSpreadsheet = !!renderSpreadsheet;
 
+    // Check if render_spreadsheet exists at all (for any message) in spreadsheet mode
+    // If it exists, we should never show render_web in spreadsheet mode
+    const hasAnyRenderSpreadsheet = useMemo(() => {
+        if (!isSpreadsheetMode) return false;
+        const spreadsheetData = threadInfo?.render_spreadsheet;
+        if (!spreadsheetData) return false;
+        
+        // Check if it's an array with any entries
+        if (Array.isArray(spreadsheetData)) {
+            return spreadsheetData.length > 0 && spreadsheetData.some((p: SpreadsheetRenderPayload) => 
+                p && p.tables && p.tables.length > 0
+            );
+        }
+        
+        // Check if it's a single object with tables
+        return !!(spreadsheetData as SpreadsheetRenderPayload)?.tables?.length;
+    }, [isSpreadsheetMode, threadInfo?.render_spreadsheet]);
+
     // New architecture: Check for render_web in state (for web mode)
     // render_web is now a list with message_id for per-message filtering
     // render_web contains structured UI components (tiles, tables, insights)
@@ -245,7 +263,10 @@ const CustomAssistantMessage = (props: AssistantMessageProps) => {
 
     // Filter render_web by message_id (similar to how charts are filtered)
     const renderWeb: WebRenderPayload | undefined = useMemo(() => {
-        // Skip render_web if we have render_spreadsheet
+        // In spreadsheet mode, if render_spreadsheet exists at all, never show render_web
+        if (hasAnyRenderSpreadsheet) return undefined;
+        
+        // Skip render_web if current message has render_spreadsheet
         if (hasRenderSpreadsheet) return undefined;
         if (allRenderWeb.length === 0) return undefined;
         
@@ -257,15 +278,11 @@ const CustomAssistantMessage = (props: AssistantMessageProps) => {
             if (matched) return matched;
         }
         
-        // Fallback: In spreadsheet mode, if no match found, use the most recent render_web entry
-        // This handles cases where message_id mapping hasn't been established yet
-        if (isSpreadsheetMode && allRenderWeb.length > 0) {
-            // Return the last entry (most recent)
-            return allRenderWeb[allRenderWeb.length - 1];
-        }
+        // No fallback in spreadsheet mode - if render_spreadsheet exists, we should never show render_web
+        // Only show render_web in web mode or when render_spreadsheet doesn't exist
         
         return undefined;
-    }, [allRenderWeb, userMessageId, currentMessageId, hasRenderSpreadsheet, isSpreadsheetMode]);
+    }, [allRenderWeb, userMessageId, currentMessageId, hasRenderSpreadsheet, hasAnyRenderSpreadsheet]);
 
     const renderWebHasContent = !!renderWeb && (
         (renderWeb.tiles && renderWeb.tiles.length > 0) ||
@@ -277,9 +294,9 @@ const CustomAssistantMessage = (props: AssistantMessageProps) => {
     // Only show render_web if:
     // 1. render_web has content
     // 2. AND either this message is not loading OR has actual content
-    // 3. AND we don't have render_spreadsheet (spreadsheet takes priority)
+    // 3. AND we don't have render_spreadsheet (spreadsheet takes priority - check both current message and global)
     // This prevents showing stale render_web from previous response on a new loading message
-    const hasRenderWeb = renderWebHasContent && (!isLoading || displayMessage.length > 0) && !hasRenderSpreadsheet;
+    const hasRenderWeb = renderWebHasContent && (!isLoading || displayMessage.length > 0) && !hasRenderSpreadsheet && !hasAnyRenderSpreadsheet;
 
 
     // Legacy: Parse structured message from JSON in message content
@@ -380,7 +397,7 @@ const CustomAssistantMessage = (props: AssistantMessageProps) => {
     };
 
     return (
-        <div className={`py-6 ${horizontalPadding}`}>
+        <div className={`py-2 ${horizontalPadding}`}>
             <div className="flex items-start">
                 <div className="w-full overflow-x-auto overflow-y-visible break-words whitespace-pre-line text-black">
                     {structuredError && (

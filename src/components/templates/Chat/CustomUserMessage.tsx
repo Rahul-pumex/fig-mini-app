@@ -27,7 +27,7 @@ const CustomUserMessage: React.FC<UserMessageProps> = (props) => {
     }
     
     return (
-        <div className={`flex justify-end py-6 ${horizontalPadding}`}>
+        <div className={`flex justify-end py-2 ${horizontalPadding}`}>
             <div className="w-auto max-w-[70%] min-w-[20%] overflow-x-auto rounded bg-[#745263] px-2 py-2 break-words whitespace-pre-line text-white">
                 {message}
             </div>
