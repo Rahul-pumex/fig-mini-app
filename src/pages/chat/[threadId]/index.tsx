@@ -39,7 +39,7 @@ function ThreadPage() {
     };
 
     const handleNewThread = () => {
-        console.log("[ThreadPage] Creating new thread");
+        setShowThreadList(false);
         setThreadId("");
         setThread({
             kg: { nodes: [], edges: [] },
@@ -59,10 +59,18 @@ function ThreadPage() {
         setShowThreadList((prev) => !prev);
     };
 
-    // Hide list when navigating to a specific thread
+    // Hide list when navigating to a specific thread or new thread
     useEffect(() => {
+        // Close thread list when URL changes (including when navigating to new thread)
         setShowThreadList(false);
     }, [router.asPath]);
+    
+    // Also close thread list when threadId changes to empty/new
+    useEffect(() => {
+        if (!threadId || threadId === "new" || threadId === "") {
+            setShowThreadList(false);
+        }
+    }, [threadId]);
 
     return (
         <SelectedContextsProvider>

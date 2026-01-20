@@ -68,18 +68,92 @@ const TableCard: React.FC<{ table: MarkdownTable }> = ({ table }) => {
         }
     }, [table.markdown]);
 
+    // Clean markdown to remove heading if it matches the table title
+    const cleanedMarkdown = useMemo(() => {
+        if (!table.title) return table.markdown;
+        
+        // Remove markdown headings (###, ##, #) that match the table title
+        const titleLower = table.title.toLowerCase().trim();
+        const lines = table.markdown.split('\n');
+        const cleanedLines: string[] = [];
+        
+        for (const line of lines) {
+            // Check if line is a markdown heading (starts with #)
+            const headingMatch = line.match(/^#{1,6}\s+(.+)$/);
+            if (headingMatch) {
+                const headingText = headingMatch[1].trim().toLowerCase();
+                // Skip this heading if it matches the table title
+                if (headingText === titleLower) {
+                    continue; // Don't add this line
+                }
+            }
+            cleanedLines.push(line);
+        }
+        
+        return cleanedLines.join('\n').trim();
+    }, [table.markdown, table.title]);
+
     // Parse markdown table to rows for export
     const exportRows = useMemo(() => {
         try {
             const lines = table.markdown.trim().split('\n').filter(line => line.trim());
-            // Remove separator line (the one with --- )
-            const dataLines = lines.filter(line => !line.match(/^\|[\s\-:|]+\|$/));
-            return dataLines.map(line => {
+            
+            // Filter to only include actual table rows (must start and end with |)
+            // Also exclude separator lines (the one with --- )
+            const tableRows = lines.filter(line => {
+                const trimmed = line.trim();
+                // Must start with | and end with |
+                if (!trimmed.startsWith('|') || !trimmed.endsWith('|')) {
+                    return false;
+                }
+                // Exclude separator lines (containing only |, -, :, spaces)
+                if (trimmed.match(/^\|[\s\-:|]+\|$/)) {
+                    return false;
+                }
+                return true;
+            });
+            
+            if (tableRows.length === 0) {
+                console.warn("No valid table rows found in markdown");
+                return [];
+            }
+            
+            // Parse each table row
+            const parsedRows = tableRows.map(line => {
                 // Split by | and clean up
-                return line.split('|')
+                const cells = line.split('|')
                     .slice(1, -1) // Remove empty first and last elements from split
                     .map(cell => cell.trim());
-            });
+                
+                // Filter out empty rows
+                if (cells.length === 0 || cells.every(cell => !cell)) {
+                    return null;
+                }
+                
+                return cells;
+            }).filter((row): row is string[] => row !== null && row.length > 0);
+            
+            if (parsedRows.length === 0) {
+                console.warn("No valid data rows after parsing");
+                return [];
+            }
+            
+            // Validate that all rows have the same number of columns
+            const columnCount = parsedRows[0]?.length || 0;
+            if (columnCount === 0) {
+                console.warn("First row has no columns");
+                return [];
+            }
+            
+            // Filter out rows with mismatched column counts (likely parsing errors)
+            const validRows = parsedRows.filter(row => row.length === columnCount);
+            
+            if (validRows.length === 0) {
+                console.warn("No rows with valid column count");
+                return [];
+            }
+            
+            return validRows;
         } catch (err) {
             console.error("Failed to parse markdown table:", err);
             return [];
@@ -142,7 +216,7 @@ const TableCard: React.FC<{ table: MarkdownTable }> = ({ table }) => {
                 <div className="overflow-x-auto p-4">
                     <div className="prose prose-sm max-w-none">
                         <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-                            {table.markdown}
+                            {cleanedMarkdown}
                         </ReactMarkdown>
                     </div>
                 </div>
@@ -150,13 +224,20 @@ const TableCard: React.FC<{ table: MarkdownTable }> = ({ table }) => {
 
             {/* Export Button - Outside table card, below footer, right-aligned */}
             {exportRows.length > 0 && (
-                <div className="flex justify-end mb-6">
-                    <ExportTableButton
-                        tableId={`spreadsheet-table-${table.table_id}`}
-                        tableName={table.title || "Table"}
-                        rows={exportRows}
-                        size="sm"
-                    />
+                <div className="flex justify-end mb-6" style={{ overflow: 'hidden', minWidth: 0 }}>
+                    <div style={{ 
+                        overflow: 'visible', 
+                        transform: 'translateZ(0)',
+                        // Add padding to accommodate scale transform without triggering parent overflow
+                        padding: '2px'
+                    }}>
+                        <ExportTableButton
+                            tableId={`spreadsheet-table-${table.table_id}`}
+                            tableName={table.title || "Table"}
+                            rows={exportRows}
+                            size="sm"
+                        />
+                    </div>
                 </div>
             )}
         </>
