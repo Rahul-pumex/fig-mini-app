@@ -2,9 +2,9 @@ import SuperTokens from "supertokens-auth-react";
 import EmailPassword from "supertokens-auth-react/recipe/emailpassword";
 import Session from "supertokens-auth-react/recipe/session";
 import { jwtDecode } from "jwt-decode";
-import { store, persistor } from "@redux/store";
-import { setTokens, setUser } from "@redux/slices/authSlice";
-import { AuthService, getTokenExpiry } from "./authService";
+import { store } from "@redux/store";
+import { setUser } from "@redux/slices/authSlice";
+import { AuthService } from "./authService";
 
 const COMPANY_NAME = "OmniScop Mini";
 
@@ -37,13 +37,16 @@ const getHeaderValue = (headers: Headers, headerName: string): string | null => 
     return null;
 };
 
-// Helper function to perform redirect with history replacement
-const performSecureRedirect = (redirectPath: string) => {
-    if (typeof window !== "undefined") {
-        // Clear the current page from history first
-        window.history.replaceState(null, "", redirectPath);
-        // Then navigate to the new page
-        window.location.replace(redirectPath);
+export const getTokenExpiry = (token: string): number => {
+    try {
+        const decoded: any = jwtDecode(token);
+        if (decoded && decoded.exp) {
+            return decoded.exp * 1000;
+        }
+        return Date.now() + 3600000;
+    } catch (error) {
+        console.error("Failed to decode token:", error);
+        return Date.now() + 3600000;
     }
 };
 
@@ -101,11 +104,7 @@ export const initAuth = () => {
                                                 sessionId: sessionId || ""
                                             });
                                             
-                                            // CRITICAL: Wait for the flush to complete BEFORE continuing
-                                            await persistor.flush(); // Force immediate persist
-                                            await new Promise(resolve => setTimeout(resolve, 500)); // Wait 500ms for persistence
-                                            
-                                            // Set login timestamp flag (EXACT same as main app)
+                                            // Set login timestamp flag
                                             try {
                                                 sessionStorage?.setItem("just_logged_in", Date.now().toString());
                                             } catch (_) {}
@@ -130,37 +129,10 @@ export const initAuth = () => {
                                                                     }
                                                                 })
                                                             );
-                                                            
-                                                            // Wait again after user dispatch
-                                                            await persistor.flush(); // Flush again after user dispatch
-                                                            await new Promise(resolve => setTimeout(resolve, 500)); // Extra safety
-                                                            
-                                                            const redirectPath = window.location.search
-                                                                ? new URLSearchParams(window.location.search).get("redirectTo")
-                                                                : null;
-                                                            
-                                                            performSecureRedirect(
-                                                                redirectPath && redirectPath !== "undefined" && redirectPath !== "null"
-                                                                    ? redirectPath
-                                                                    : "/chat/new"
-                                                            );
                                                         }
                                                     }
                                                 } catch (e) {
                                                     console.error("Error processing front token:", e);
-                                                    
-                                                    // Still wait before redirect
-                                                    await new Promise(resolve => setTimeout(resolve, 300));
-                                                    
-                                                    const redirectPath = window.location.search
-                                                        ? new URLSearchParams(window.location.search).get("redirectTo")
-                                                        : null;
-                                                    
-                                                    performSecureRedirect(
-                                                        redirectPath && redirectPath !== "undefined" && redirectPath !== "null"
-                                                            ? redirectPath
-                                                            : "/chat/new"
-                                                    );
                                                 }
                                             }
                                         }
@@ -175,26 +147,10 @@ export const initAuth = () => {
                 })
             );
 
-            // Session recipe with signOut override and event handler
+            // Session recipe with signOut override
             dynamicRecipes.push(
                 Session.init({
                     tokenTransferMethod: "header",
-                    onHandleEvent: (context) => {
-                        // Handle session-related events from SuperTokens
-                        if (context.action === "UNAUTHORISED") {
-                            console.warn("[Session] UNAUTHORISED event - session refresh failed after retries, redirecting to /auth");
-                            AuthService.clearAllTokens();
-                            // Use setTimeout to defer redirect until after current execution completes
-                            // This prevents interrupting React's render cycle
-                            setTimeout(() => {
-                                if (typeof window !== "undefined" && !window.location.pathname.includes("/auth")) {
-                                    window.location.href = "/auth";
-                                }
-                            }, 0);
-                        } else if (context.action === "SESSION_ALREADY_EXISTS") {
-                            console.log("[Session] Session already exists");
-                        }
-                    },
                     override: {
                         functions: (originalImplementation) => {
                             return {

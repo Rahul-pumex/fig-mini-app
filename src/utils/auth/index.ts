@@ -1,8 +1,5 @@
-// Export authConfig (excluding getTokenExpiry to avoid conflict)
-export { initAuth } from "./authConfig";
-
-// Export authService (this is the main getTokenExpiry)
-export { AuthService, getTokenExpiry } from "./authService";
+export * from "./authConfig";
+export * from "./authService";
 
 // Export other modules
 export { useFetchInterceptor } from "./fetchInterceptor";

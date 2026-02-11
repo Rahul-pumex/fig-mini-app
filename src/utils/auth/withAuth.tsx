@@ -1,49 +1,27 @@
-import { useRouter } from "next/router";
-import { useEffect, useState } from "react";
-import { AuthService } from "./authService";
 import { isRedirectInProgress, setRedirectFlag, clearRedirectFlag } from "./redirectUtils";
 import { DEFAULT_AUTHENTICATED_ROUTE } from "./authConstants";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/router";
+import { AuthService } from "@utils";
 
-// Global auth check state - persists across page navigations
-let globalAuthChecked = false;
-let globalIsAuthenticated = false;
+/**
+ * Global validation state
+ * Tracks whether we've validated the session during this browser session
+ * Reset on logout via resetAuthState()
+ */
+let hasValidatedThisSession = false;
 
-// Helper to build auth redirect URL
-const getAuthRedirectUrl = (router: any): string => {
-    const currentPath = router.pathname;
-
-    // Don't preserve base route or auth routes
-    if (!currentPath || currentPath === "/" || currentPath.startsWith("/auth")) {
-        return "/auth";
-    }
-
-    // Preserve full path including query params
-    const fullPath = router.asPath;
-    return `/auth?redirectTo=${encodeURIComponent(fullPath)}`;
-};
-
-export function withAuth<P extends object>(
-    WrappedComponent: React.ComponentType<P>
-): React.FC<P> {
-    const ComponentWithAuth: React.FC<P> = (props) => {
+export function withAuth<P>(WrappedComponent: React.ComponentType<P>): React.FC<P> {
+    return (props: P) => {
         const router = useRouter();
-        // Initialize from global state if available
-        const [isAuthenticated, setIsAuthenticated] = useState(globalIsAuthenticated);
-        const [isRedirecting, setIsRedirecting] = useState(false);
-        const [isChecking, setIsChecking] = useState(!globalAuthChecked);
+        const [isAuthenticated, setIsAuthenticated] = useState(false);
+        const [isChecking, setIsChecking] = useState(true);
 
         useEffect(() => {
-            const { pathname } = router;
+            async function checkAuth() {
+                const { pathname } = router;
 
-            async function checkAuthentication() {
-                // If we've globally checked and are authenticated, skip validation
-                if (globalAuthChecked && globalIsAuthenticated && AuthService.isAuthenticated()) {
-                    setIsAuthenticated(true);
-                    setIsChecking(false);
-                    return;
-                }
-
-                // Check if redirect is in progress using new utility
+                // Skip check if redirect is in progress
                 if (isRedirectInProgress()) {
                     console.log("[withAuth] Redirect in progress, waiting...");
                     setIsChecking(false);
@@ -51,234 +29,114 @@ export function withAuth<P extends object>(
                 }
 
                 try {
+                    console.log("[withAuth] Checking auth for:", pathname);
 
-                    // Check if we just logged in and calculate timing
-                    const justLoggedInTimestamp = sessionStorage.getItem("just_logged_in");
-                    let isRecentLogin = false;
-                    let isVeryRecentLogin = false;
-                    let timeSinceLogin = 0;
-                    
-                    if (justLoggedInTimestamp) {
-                        timeSinceLogin = Date.now() - parseInt(justLoggedInTimestamp);
-                        isRecentLogin = timeSinceLogin < 30000; // 30 seconds
-                        isVeryRecentLogin = timeSinceLogin < 10000; // 10 seconds - CRITICAL period
-                        
-                        // CRITICAL: Wait longer if very recent login to let Redux persist complete
-                        if (timeSinceLogin < 5000) {
-                            await new Promise((resolve) => setTimeout(resolve, 1500));
-                        } else {
-                            await new Promise((resolve) => setTimeout(resolve, 100));
-                        }
-                    } else {
-                        await new Promise((resolve) => setTimeout(resolve, 100));
-                    }
-
-                    if (isRecentLogin) {
-                        // Skip the hasCompleteSession check for recent logins
-                        // This prevents clearing tokens before sessionId propagates
-                        const authenticated = AuthService.isAuthenticated();
-                        
-                        if (authenticated) {
-                            globalAuthChecked = true;
-                            globalIsAuthenticated = true;
-                            setIsAuthenticated(true);
-                            setIsChecking(false);
-                            clearRedirectFlag();
-                            return;
-                        }
-                    }
-
-                    // First check if we have any valid authentication
-                    const authenticated = AuthService.isAuthenticated();
-
-                    if (!authenticated) {
-                        // CRITICAL: If we just logged in (<10s ago), don't redirect yet!
-                        // The tokens might still be persisting to localStorage
-                        if (isVeryRecentLogin) {
-                            // Try one more time after another delay
-                            await new Promise((resolve) => setTimeout(resolve, 1000));
-                            const retryAuth = AuthService.isAuthenticated();
-                            
-                            if (retryAuth) {
-                                globalAuthChecked = true;
-                                globalIsAuthenticated = true;
-                                setIsAuthenticated(true);
-                                setIsChecking(false);
-                                return;
-                            }
-                        }
-                        globalAuthChecked = false;
-                        globalIsAuthenticated = false;
-                        setRedirectFlag();
-                        setIsRedirecting(true);
-                        setIsChecking(false);
-                        await router.replace(getAuthRedirectUrl(router));
+                    // Step 1: Check if user has tokens
+                    if (!AuthService.isAuthenticated()) {
+                        console.log("[withAuth] No valid tokens found");
+                        handleAuthFailure();
                         return;
                     }
 
-                    // Check if we have a complete session (must have session ID)
-                    // ONLY enforce this check if we're not in the recent login grace period
-                    const hasCompleteSession = AuthService.hasCompleteSession();
-
-                    if (!hasCompleteSession && !isRecentLogin) {
-                        console.error("[withAuth] Incomplete session detected (not recent login)!", {
-                            pathname,
-                            hasAccessToken: !!AuthService.getAccessToken(),
-                            hasRefreshToken: !!AuthService.getRefreshToken(),
-                            hasSessionId: !!AuthService.getSessionId(),
-                            justLoggedInTimestamp
-                        });
-                        
-                        // CRITICAL: One more safety check - don't clear if VERY recent login
-                        if (isVeryRecentLogin) {
-                            // Allow through without session ID for now
-                            globalAuthChecked = true;
-                            globalIsAuthenticated = true;
-                            setIsAuthenticated(true);
-                            setIsChecking(false);
-                            return;
-                        }
+                    // Step 2: Check if session is complete (has sessionId)
+                    if (!AuthService.hasCompleteSession()) {
+                        console.log("[withAuth] Incomplete session (missing sessionId)");
                         AuthService.clearAllTokens();
-                        globalAuthChecked = false;
-                        globalIsAuthenticated = false;
-                        setRedirectFlag();
-                        setIsRedirecting(true);
-                        setIsChecking(false);
-                        await router.replace(getAuthRedirectUrl(router));
+                        handleAuthFailure();
                         return;
                     }
 
-                    // Only validate with backend on first check
-                    // BUT skip validation if this is a very recent login (< 10 seconds)
-                    if (!globalAuthChecked) {
-                        // CRITICAL FIX: Skip backend validation during very recent login
-                        // This prevents the refresh API call that's causing the loop
-                        if (isVeryRecentLogin) {
-                            globalAuthChecked = true;
-                            globalIsAuthenticated = true;
-                            setIsAuthenticated(true);
-                            setIsChecking(false);
-                            clearRedirectFlag();
-                            return;
-                        }
-                        
+                    // Step 3: Validate with backend (ONLY if not validated this session)
+                    if (!hasValidatedThisSession) {
+                        console.log("[withAuth] Validating session with backend...");
                         const isValid = await AuthService.validateSession();
 
-                        if (isValid) {
-                            globalAuthChecked = true;
-                            globalIsAuthenticated = true;
-                            setIsAuthenticated(true);
-                            setIsChecking(false);
-                            clearRedirectFlag();
-
-                            // Redirect from root to chat
-                            if (pathname === "/") {
-                                await router.push(DEFAULT_AUTHENTICATED_ROUTE, undefined, { shallow: true });
-                            }
-                        } else {
-                            // CRITICAL: Even if validation failed, check if we're still in recent login period
-                            // This prevents clearing tokens due to temporary validation issues
-                            if (isRecentLogin) {
-                                globalAuthChecked = true;
-                                globalIsAuthenticated = true;
-                                setIsAuthenticated(true);
-                                setIsChecking(false);
-                                clearRedirectFlag();
-                                return;
-                            }
-                            globalAuthChecked = false;
-                            globalIsAuthenticated = false;
-                            setRedirectFlag();
-                            setIsRedirecting(true);
-                            setIsChecking(false);
-                            await router.replace(getAuthRedirectUrl(router));
+                        if (!isValid) {
+                            console.log("[withAuth] Session validation failed");
+                            handleAuthFailure();
+                            return;
                         }
+
+                        // Mark as validated for this session
+                        hasValidatedThisSession = true;
+                        console.log("[withAuth] Session validated successfully");
                     } else {
-                        // Skip validation, already checked globally
-                        setIsAuthenticated(true);
-                        setIsChecking(false);
+                        console.log("[withAuth] Already validated this session, skipping backend check");
+                    }
+
+                    // Success: user is authenticated
+                    clearRedirectFlag();
+                    setIsAuthenticated(true);
+                    setIsChecking(false);
+
+                    // Redirect root to default authenticated route
+                    if (pathname === "/") {
+                        router.push(DEFAULT_AUTHENTICATED_ROUTE, undefined, { shallow: true });
                     }
                 } catch (error) {
-                    console.error("[withAuth] Authentication check failed:", error);
-                    // Clear potentially corrupted auth state
-                    globalAuthChecked = false;
-                    globalIsAuthenticated = false;
+                    console.error("[withAuth] Auth check error:", error);
                     AuthService.clearAllTokens();
-                    setRedirectFlag();
-                    setIsRedirecting(true);
-                    setIsChecking(false);
-                    await router.replace(getAuthRedirectUrl(router));
+                    handleAuthFailure();
                 }
             }
 
-            checkAuthentication();
-        }, [router.pathname, router.asPath]); // Re-run when pathname or full path changes
-        
-        // CRITICAL: Prevent re-checking auth due to router events during grace period
+            function handleAuthFailure() {
+                hasValidatedThisSession = false;
+                setIsAuthenticated(false);
+                setIsChecking(false);
+
+                // Build redirect URL with current path
+                const currentPath = router.pathname;
+                const shouldPreservePath = currentPath !== "/" && !currentPath.includes("/auth");
+
+                if (shouldPreservePath) {
+                    const fullPath = router.asPath;
+                    setRedirectFlag();
+                    router.replace(`/auth?redirectTo=${encodeURIComponent(fullPath)}`);
+                } else {
+                    setRedirectFlag();
+                    router.replace("/auth");
+                }
+            }
+
+            checkAuth();
+        }, [router.pathname]);
+
+        // Listen for logout events to reset validation state
         useEffect(() => {
-            const handleRouteChangeStart = (url: string) => {
-                const justLoggedInTs = sessionStorage.getItem("just_logged_in");
-                if (justLoggedInTs) {
-                    const timeSinceLogin = Date.now() - parseInt(justLoggedInTs);
-                    if (timeSinceLogin < 10000) {
-                        // Route change during grace period - prevent re-auth check
+            const handleStorageChange = (e: StorageEvent) => {
+                if (e.key === "persist:root" || e.storageArea === localStorage) {
+                    if (!AuthService.isAuthenticated()) {
+                        console.log("[withAuth] Auth cleared, resetting validation state");
+                        hasValidatedThisSession = false;
                     }
                 }
             };
-            
-            router.events?.on("routeChangeStart", handleRouteChangeStart);
-            
-            return () => {
-                router.events?.off("routeChangeStart", handleRouteChangeStart);
-            };
-        }, [router]);
 
-        // Clear redirect flags when component unmounts OR when router changes
-        useEffect(() => {
             const handleRouteChange = () => {
                 clearRedirectFlag();
             };
 
-            // Listen to logout events to clear global state
-            const handleStorageChange = (e: StorageEvent) => {
-                if (e.key === "persist:root" || e.storageArea === localStorage) {
-                    // Check if auth was cleared
-                    if (!AuthService.isAuthenticated()) {
-                        globalAuthChecked = false;
-                        globalIsAuthenticated = false;
-                    }
-                }
-            };
-
-            router.events?.on("routeChangeComplete", handleRouteChange);
             window.addEventListener("storage", handleStorageChange);
+            router.events?.on("routeChangeComplete", handleRouteChange);
 
             return () => {
-                router.events?.off("routeChangeComplete", handleRouteChange);
                 window.removeEventListener("storage", handleStorageChange);
+                router.events?.off("routeChangeComplete", handleRouteChange);
             };
         }, [router]);
 
-        // Show nothing during redirect
-        if (isRedirecting) return null;
-
-        // On first load, only hide if checking and not authenticated
-        if (isChecking && !isAuthenticated) {
+        // Don't render anything while checking or if not authenticated
+        if (isChecking || !isAuthenticated) {
             return null;
         }
 
-        if (!isAuthenticated) return null;
-
-        return <WrappedComponent {...props} />;
+        return <WrappedComponent {...(props as any)} />;
     };
-
-    return ComponentWithAuth;
 }
 
-// Export function to reset global state (for logout)
 export const resetAuthState = () => {
-    console.log("[withAuth] Resetting global auth state");
-    globalAuthChecked = false;
-    globalIsAuthenticated = false;
+    console.log("[withAuth] Resetting validation state");
+    hasValidatedThisSession = false;
 };
 

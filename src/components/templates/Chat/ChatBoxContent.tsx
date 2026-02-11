@@ -3,7 +3,7 @@ import "@copilotkit/react-ui/styles.css";
 import { useCoAgent, useCopilotContext } from "@copilotkit/react-core";
 import { ChatBoxContentProps, AdminFlowAgentState } from "../../../types";
 import { ADMIN_AGENT_NAME, THREAD_PAGE_PREFIX } from "../../../constants";
-import { useEffect, useCallback, useRef, useState } from "react";
+import { useEffect, useCallback, useRef, useState, useMemo } from "react";
 import { ChatModeProvider } from "../../ChatModeContext";
 import CustomUserMessage from "./CustomUserMessage";
 import CustomChatInput from "./CustomChatInput";
@@ -40,56 +40,18 @@ const ChatBoxContent: React.FC<ChatBoxContentProps> = ({ isCollapsed, setIsColla
     // Initialize suggestion bubbles
     // const { visible: suggestionsVisible, suggestions, showSuggestions, hideSuggestions, updateSuggestions } = useSuggestionBubbles(); // disabled
 
+    // Memoize initialState to prevent unnecessary reloads when threadId hasn't actually changed
+    const normalizedThreadId = isEmpty(threadId) || threadId === "new" ? undefined : threadId;
+    const initialState = useMemo(() => ({
+        threadId: normalizedThreadId
+    }), [normalizedThreadId]);
+
     const { state, threadId: oid } = useCoAgent<AdminFlowAgentState>({
         name: ADMIN_AGENT_NAME,
-        initialState: {
-            threadId: isEmpty(threadId) || threadId === "new" ? undefined : threadId
-        }
+        initialState
     });
 
-    // removed dev-only state logging
 
-    // Handle when to show/hide suggestions
-    // const handleSuggestionLogic = useCallback(() => {
-    //     const chatMessages = document.querySelectorAll(".copilot-kit-messages > div");
-    //     const currentMessageCount = chatMessages.length;
-    //     if (currentMessageCount === 0) {
-    //         showSuggestions();
-    //     } else if (currentMessageCount > messageCountRef.current && currentMessageCount % 2 === 0) {
-    //         const contextualSuggestions = generateContextualSuggestions(threadInfo);
-    //         if (contextualSuggestions.length > 0) {
-    //             updateSuggestions(contextualSuggestions);
-    //             showSuggestions();
-    //         }
-    //     }
-    //     messageCountRef.current = currentMessageCount;
-    // }, [showSuggestions, updateSuggestions, threadInfo]);
-
-    // const handleSuggestionClick = useCallback(() => {
-    //     hideSuggestions();
-    // }, [hideSuggestions]);
-
-    // Removed custom stop handler to avoid accidental cancellations
-
-    // Monitor for message changes
-    // useEffect(() => {
-    //     const timer = setTimeout(() => {
-    //         handleSuggestionLogic();
-    //     }, 500);
-    //     return () => clearTimeout(timer);
-    // }, [handleSuggestionLogic, threadInfo, isLoading]);
-
-    // Monitor DOM changes for new messages
-    // useEffect(() => {
-    //     const observer = new MutationObserver(() => {
-    //         handleSuggestionLogic();
-    //     });
-    //     const messagesContainer = document.querySelector(".copilot-kit-messages");
-    //     if (messagesContainer) {
-    //         observer.observe(messagesContainer, { childList: true, subtree: true });
-    //     }
-    //     return () => observer.disconnect();
-    // }, [handleSuggestionLogic]);
 
     const scrollToBottom = useCallback(
         (force = false) => {

@@ -33,7 +33,7 @@ export default function Home() {
     }, [router, isRedirecting]);
 
     return (
-        <div className="flex items-center justify-center h-screen bg-gradient-to-b from-white via-[#F5F0F3] to-[#E8DDE3]">
+        <div className="flex items-center justify-center h-screen bg-white">
             <div className="flex flex-col items-center gap-4">
                 <GridSpinner height={48} width={48} />
                 <p className="text-sm text-gray-600">Loading...</p>

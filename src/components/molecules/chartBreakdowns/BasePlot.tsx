@@ -33,3 +33,6 @@ export const BasePlot: React.FC<BasePlotProps> = ({ data, layout, config, isFull
     );
 };
 
+
+
+

@@ -39,7 +39,7 @@ export const useAuth = () => {
         return AuthService.isAccessTokenExpired();
     }, []);
 
-    // Get valid access token (refresh if needed)
+    // Get valid access token (no auto refresh in mini-app)
     const getValidAccessToken = useCallback(async (): Promise<string | null> => {
         // Use AuthService for access token checking
         const accessToken = AuthService.getAccessToken();
@@ -51,16 +51,10 @@ export const useAuth = () => {
             return accessToken;
         }
 
-        // Try to refresh token using AuthService
-        const refreshed = await AuthService.refreshSession();
-        if (refreshed) {
-            return AuthService.getAccessToken();
-        }
-
-        // If refresh fails, clear auth state
-        dispatch(clearAuth());
+        // Expired token should force logout flow; do not refresh.
+        AuthService.clearAllTokens();
         return null;
-    }, [dispatch]);
+    }, []);
 
     // Sign in function
     const signIn = useCallback(
@@ -168,57 +162,12 @@ export const useAuth = () => {
         }
     }, []);
 
-    // Refresh session function
+    // Refresh session function (disabled by design in mini-app)
     const refreshSession = useCallback(async (): Promise<boolean> => {
-        try {
-            console.log("[useAuth] Starting session refresh...");
-
-            // Get refresh token from Redux store (now persisted)
-            const refreshToken = AuthService.getRefreshToken();
-
-            if (!refreshToken) {
-                console.error("[useAuth] No refresh token available");
-                return false;
-            }
-
-            // Use relative path to leverage Next.js proxy
-            const response = await fetch(`/api/auth/session/refresh`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${refreshToken}`
-                }
-            });
-
-            if (response.ok) {
-                const data = await response.json();
-                if (data.status === "OK" && data.tokens) {
-                    // Extract new session ID from response headers
-                    const newSessionId = response.headers.get("x-session_id");
-                    console.log("[useAuth] Refresh successful, new session ID:", newSessionId ? "received" : "missing");
-
-                    dispatch(
-                        setTokens({
-                            accessToken: data.tokens.accessToken,
-                            refreshToken: refreshToken, // Keep existing refresh token
-                            accessTokenExpiry: data.tokens.accessTokenExpiry,
-                            refreshTokenExpiry: data.tokens.refreshTokenExpiry || Date.now() + 30 * 24 * 60 * 60 * 1000,
-                            sessionId: newSessionId || "" // Use new session ID from response
-                        })
-                    );
-
-                    console.log("[useAuth] Session refreshed successfully");
-                    return true;
-                }
-            }
-
-            console.warn("[useAuth] Session refresh failed with status:", response.status);
-            return false;
-        } catch (error) {
-            console.error("[useAuth] Session refresh error:", error);
-            return false;
-        }
-    }, [dispatch]);
+        console.warn("[useAuth] refreshSession is disabled in mini-app. Logging out instead.");
+        AuthService.clearAllTokens();
+        return false;
+    }, []);
 
     // Validate session through backend API - centralized session validation function
     // that can be used from API interceptors and other places in the app

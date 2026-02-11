@@ -1,4 +1,5 @@
 export * from "./auth";
+export * from "./fingerprint";
 import { AdminFlowAgentState, MetricOption } from "../types";
 
 export function extractMetrics(

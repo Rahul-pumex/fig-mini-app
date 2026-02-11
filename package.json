@@ -47,6 +47,7 @@
 		"remark-gfm": "^4.0.1",
 		"supertokens-auth-react": "^0.49.1",
 		"supertokens-web-js": "^0.15.0",
+		"sweetalert2": "^11.26.18",
 		"tailwindcss": "^4.1.7"
 	},
 	"devDependencies": {

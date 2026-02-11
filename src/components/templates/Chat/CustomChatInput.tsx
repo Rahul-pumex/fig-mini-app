@@ -1,12 +1,12 @@
-import ChatInputActions, { type UploadedFile } from "../../molecules/ChatInputActions";
+import { type UploadedFile } from "../../molecules/ChatInputActions";
 import { CustomChatInputProps, MetricOption } from "../../../types";
 import { useEffect, useRef, useState, useCallback } from "react";
 import CustomAttachmentUI from "../../molecules/CustomAttachmentUI";
-import { ArrowUp } from 'lucide-react';
+import { ArrowUp, FileSpreadsheet } from 'lucide-react';
 import { ContextBubble } from "../../molecules/contextBubble";
 import { useSelectedContexts } from "../../SelectedContextsContext";
-import ImageUploadIcon from "../../atoms/icons/imageUploadIcon";
 import StopIcon from "../../atoms/icons/stopIcon";
+import Swal from "sweetalert2";
 
 // Placeholder for suggestion bubbles (disabled in mini app)
 const SuggestionBubbles = () => null;
@@ -14,7 +14,6 @@ const SuggestionBubbles = () => null;
 const CustomChatInput = (props: CustomChatInputProps) => {
     const [message, setMessage] = useState("");
     const [showCustomUI, setShowCustomUI] = useState(false);
-    const [showActions, setShowActions] = useState(false);
     const [isScrollable, setIsScrollable] = useState(false);
     const [internalIsGenerating, setInternalIsGenerating] = useState(false);
     const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
@@ -106,7 +105,7 @@ const CustomChatInput = (props: CustomChatInputProps) => {
         };
     }, [adjustTextareaHeight]);
 
-    // Request sheet data from Google Sheets parent window
+    // Request sheet data from Google Sheets parent window (copy to clipboard for Excel)
     const requestSheetData = useCallback(() => {
         if (typeof window !== "undefined" && window.parent !== window) {
             // We're in an iframe, send message to parent
@@ -114,6 +113,7 @@ const CustomChatInput = (props: CustomChatInputProps) => {
             window.parent.postMessage({ type: 'REQUEST_SHEET_DATA' }, '*');
         } else {
             console.warn('[Google Sheets] Not in an iframe, cannot request sheet data');
+            // Just log warning, don't show alert
         }
     }, []);
 
@@ -121,7 +121,7 @@ const CustomChatInput = (props: CustomChatInputProps) => {
     useEffect(() => {
         if (typeof window === "undefined") return;
 
-        const handleSheetData = (event: MessageEvent) => {
+        const handleSheetData = async (event: MessageEvent) => {
             
             // Accept messages from any origin when in iframe (you may want to restrict this in production)
             if (event.data && event.data.type === 'SHEET_DATA' && event.data.source === 'google-sheets') {
@@ -129,81 +129,82 @@ const CustomChatInput = (props: CustomChatInputProps) => {
                 const payload = event.data.payload;
                 console.log('[Google Sheets] Payload:', payload);
                 
-                let formattedData = "";
-                
                 // Check if request was successful
                 if (!payload) {
                     console.warn('[Google Sheets] No payload received');
-                    formattedData = "No data available in the sheet.\n\n(No payload received from Google Sheets)";
+                    // Just log warning, don't show alert
+                    return;
                 } else if (payload.success === false) {
-                    console.warn('[Google Sheets] Request failed:', payload.error || payload.message);
-                    formattedData = "No data available in the sheet.\n\n";
-                    formattedData += `Error: ${payload.error || payload.message || 'Failed to retrieve sheet data'}`;
+                    console.error('[Google Sheets] Request failed:', payload.error || payload.message);
+                    // Just log error, don't show alert
+                    return;
                 } else {
-                    // Format the sheet data for the input field
-                    formattedData = "Google Sheets Data\n";
-                    formattedData += "==================\n\n";
-                    
+                    // Format the sheet data for Excel (tab-separated format for clipboard)
                     try {
                         // Handle the actual payload structure: { headers, rows, sheetName, rowCount, columnCount }
-                        const sheetName = payload.sheetName || 'Sheet';
                         const headers = payload.headers || [];
                         const rows = payload.rows || [];
-                        const rowCount = payload.rowCount || 0;
-                        const columnCount = payload.columnCount || 0;
                         
-                        // Add sheet name
-                        formattedData += `Sheet: ${sheetName}\n`;
-                        formattedData += `Rows: ${rowCount}, Columns: ${columnCount}\n\n`;
+                        let excelData = "";
                         
-                        // Add headers if they exist
+                        // Add headers if they exist (tab-separated)
                         if (headers.length > 0) {
-                            formattedData += "Headers:\n";
-                            formattedData += headers.join(", ") + "\n\n";
+                            excelData += headers.join("\t") + "\n";
                         }
                         
-                        // Add data rows if they exist
+                        // Add data rows (tab-separated for Excel compatibility)
                         if (rows.length > 0) {
-                            formattedData += "Data:\n";
-                            rows.forEach((row: any, index: number) => {
+                            rows.forEach((row: any) => {
                                 if (Array.isArray(row)) {
-                                    formattedData += `Row ${index + 1}: ${row.join(", ")}\n`;
+                                    // Convert array to tab-separated string
+                                    excelData += row.map(cell => String(cell || "")).join("\t") + "\n";
                                 } else if (typeof row === 'object' && row !== null) {
-                                    // If row is an object, try to match with headers
+                                    // If row is an object, match with headers
                                     if (headers.length > 0) {
                                         const rowValues = headers.map((header: string) => {
-                                            return row[header] !== undefined ? row[header] : '';
+                                            return String(row[header] !== undefined ? row[header] : '');
                                         });
-                                        formattedData += `Row ${index + 1}: ${rowValues.join(", ")}\n`;
+                                        excelData += rowValues.join("\t") + "\n";
                                     } else {
-                                        formattedData += `Row ${index + 1}: ${JSON.stringify(row)}\n`;
+                                        // No headers, just join object values
+                                        excelData += Object.values(row).map(v => String(v || "")).join("\t") + "\n";
                                     }
                                 } else {
-                                    formattedData += `Row ${index + 1}: ${row}\n`;
+                                    excelData += String(row) + "\n";
                                 }
                             });
-                        } else if (headers.length > 0) {
-                            // Headers exist but no data rows
-                            formattedData += "No data rows available (only headers found)\n";
+                        }
+                        
+                        // Copy to clipboard in Excel-compatible format (tab-separated)
+                        if (excelData.trim()) {
+                            try {
+                                await navigator.clipboard.writeText(excelData.trim());
+                                console.log('[Google Sheets] Data copied to clipboard in Excel format');
+                                
+                                // Show success toast notification
+                                Swal.fire({
+                                    title: 'Copied to Clipboard!',
+                                    icon: 'success',
+                                    toast: true,
+                                    position: 'top-end',
+                                    showConfirmButton: false,
+                                    timer: 2000,
+                                    timerProgressBar: true,
+                                    width: 'auto'
+                                });
+                            } catch (clipboardError) {
+                                console.error('[Google Sheets] Failed to copy to clipboard:', clipboardError);
+                                // Just log error, don't show alert
+                            }
                         } else {
-                            // No headers and no rows
-                            formattedData += "No data available in the sheet.\n\n(Sheet is empty)";
+                            console.warn('[Google Sheets] No data available in the spreadsheet to copy.');
+                            // Just log warning, don't show alert
                         }
                     } catch (error) {
-                        console.error('[Google Sheets] Error formatting sheet data:', error);
-                        formattedData = "No data available in the sheet.\n\n";
-                        formattedData += `Error formatting data: ${error instanceof Error ? error.message : String(error)}`;
+                        console.error('[Google Sheets] Error processing sheet data:', error);
+                        // Just log error, don't show alert
                     }
                 }
-
-                // Set the formatted data in the input field instead of sending directly
-                setMessage(formattedData);
-                
-                // Focus the textarea to show the data
-                setTimeout(() => {
-                    textareaRef.current?.focus();
-                    adjustTextareaHeight();
-                }, 100);
             }
         };
 
@@ -212,7 +213,7 @@ const CustomChatInput = (props: CustomChatInputProps) => {
         return () => {
             window.removeEventListener('message', handleSheetData);
         };
-    }, [adjustTextareaHeight]);
+    }, []);
 
     useEffect(() => {
         if (submitFunction && typeof window !== "undefined") {
@@ -417,21 +418,12 @@ const CustomChatInput = (props: CustomChatInputProps) => {
                     <div className="flex items-center gap-2">
                         <button
                             type="button"
-                            className={`flex h-8 w-8 items-center justify-center rounded-lg transition-all hover:bg-gray-100 ${showActions ? "bg-[#745263] text-white" : "text-gray-600"}`}
-                            title="Add attachments"
+                            className="flex h-8 w-8 items-center justify-center rounded-lg transition-all hover:bg-gray-100 text-gray-600"
+                            title="Copy spreadsheet data to Excel"
                             disabled={disabled}
-                            onClick={() => setShowActions((prev) => !prev)}
+                            onClick={requestSheetData}
                         >
-                            <span
-                                className="cursor-pointer"
-                                style={{
-                                    display: "inline-block",
-                                    transition: "transform 0.3s",
-                                    transform: showActions ? "rotate(45deg)" : "rotate(0deg)"
-                                }}
-                            >
-                                <ImageUploadIcon size={18} />
-                            </span>
+                            <FileSpreadsheet size={18} />
                         </button>
                     </div>
                     <div className="relative flex min-w-0 flex-1 flex-col justify-center">
@@ -498,15 +490,6 @@ const CustomChatInput = (props: CustomChatInputProps) => {
                 </div>
             </form>
 
-            {showActions && (
-                <ChatInputActions
-                    disabled={disabled}
-                    onAttachmentClick={handleCustomButtonClick}
-                    files={uploadedFiles}
-                    onFilesChange={setUploadedFiles}
-                    onRequestSheetData={requestSheetData}
-                />
-            )}
             <CustomAttachmentUI isOpen={showCustomUI} onClose={() => setShowCustomUI(false)} onSelect={handleCustomUISelect} />
         </div>
     );

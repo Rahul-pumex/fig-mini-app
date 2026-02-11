@@ -13,6 +13,7 @@ interface FigAgentContextType {
     threadInfo: AdminFlowAgentState | null;
     setThread: (data: AdminFlowAgentState) => void;
     fetchThreads: () => Promise<void>;
+    deleteThread: (threadId: string) => Promise<void>;
     thread_list: ThreadItem[];
     thread_list_status: 'IDLE' | 'LOADING' | 'SUCCESS' | 'FAILED';
     delete_thread: null;
@@ -62,16 +63,51 @@ export const FigAgentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
     }, [threadListStatus]);
 
+    const deleteThread = useCallback(async (threadIdToDelete: string) => {
+        try {
+            const accessToken = AuthService.getAccessToken();
+            const sessionId = AuthService.getSessionId();
+
+            const res = await fetch(`/api/threads/${threadIdToDelete}`, {
+                method: 'DELETE',
+                headers: {
+                    ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+                    ...(sessionId ? { 'x-session_id': sessionId } : {})
+                },
+                credentials: 'include'
+            });
+
+            if (!res.ok) {
+                console.error('Error deleting thread:', res.statusText);
+                return;
+            }
+
+            // Remove the deleted thread from the list
+            setThreadList(prev => prev.filter(item => item.thread_id !== threadIdToDelete));
+            
+            // If the deleted thread was the active one, clear it
+            if (threadId === threadIdToDelete) {
+                setThreadIdState(undefined);
+            }
+
+            // Refresh the thread list
+            await fetchThreads();
+        } catch (e) {
+            console.error('Error deleting thread:', e);
+        }
+    }, [threadId, fetchThreads]);
+
     const value = useMemo(() => ({
         threadId,
         setThreadId,
         threadInfo,
         setThread,
         fetchThreads,
+        deleteThread,
         thread_list: threadList,
         thread_list_status: threadListStatus,
         delete_thread: null
-    }), [threadId, threadInfo, threadList, threadListStatus, setThreadId, setThread, fetchThreads]);
+    }), [threadId, threadInfo, threadList, threadListStatus, setThreadId, setThread, fetchThreads, deleteThread]);
 
     return <FigAgentContext.Provider value={value}>{children}</FigAgentContext.Provider>;
 };
@@ -87,6 +123,7 @@ export const useFigAgent = (): FigAgentContextType => {
             threadInfo: null,
             setThread: () => {},
             fetchThreads: async () => {},
+            deleteThread: async () => {},
             thread_list: [],
             thread_list_status: 'IDLE',
             delete_thread: null

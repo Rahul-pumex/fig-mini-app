@@ -68,3 +68,6 @@ export type NormalisedChart = { data: PlotlyData[]; layout: PlotlyLayout };
 // Convenience type guard / helper placeholder (can expand later)
 export const isDivergentType = (t: string) => t === "divergent" || t === "divergent-bar";
 
+
+
+

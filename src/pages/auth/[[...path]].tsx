@@ -84,7 +84,7 @@ export default function Auth() {
     }
 
     return (
-        <div className="flex items-center justify-center h-screen bg-gradient-to-b from-white via-[#F5F0F3] to-[#E8DDE3]">
+        <div className="flex items-center justify-center h-screen bg-white">
             <GridSpinner height={48} width={48} />
         </div>
     );

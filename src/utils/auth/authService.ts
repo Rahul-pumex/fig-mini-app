@@ -2,24 +2,16 @@ import { REFRESH_TOKEN_COOKIE, SUPERTOKENS_LOCALSTORAGE_PATTERNS, SUPERTOKENS_CO
 import { clearAuth, setTokens, updateAccessToken } from "@redux/slices/authSlice";
 import { tokenRefreshQueue } from "./tokenRefreshQueue";
 import { setCookie, deleteCookie } from "./cookieUtils";
+import { getTokenExpiry } from "./authConfig";
+import { resetAuthState } from "./withAuth";
 import { store } from "@redux/store";
-
-// Get token expiry from JWT
-export const getTokenExpiry = (token: string): number => {
-    try {
-        const payload = JSON.parse(atob(token.split('.')[1]));
-        return payload.exp * 1000;
-    } catch (error) {
-        return Date.now() + 3600000; // Default 1 hour
-    }
-};
 
 /**
  * AuthService: Non-hook authentication utilities for use in non-React contexts
  *
  * VALIDATION STRATEGY:
  * - Session validation happens ONLY at page load in withAuth HOC
- * - API interceptors handle 401 errors with automatic token refresh
+ * - API interceptors handle 401/403 errors by redirecting to /auth
  * - No per-request validation (improves performance)
  */
 export const AuthService = {
@@ -65,17 +57,9 @@ export const AuthService = {
                 return true;
             }
 
-            // If 401, try to refresh tokens
-            if (response.status === 401) {
-                console.log("[AuthService] Session expired (401), attempting refresh...");
-                const refreshed = await AuthService.refreshSession();
-
-                if (refreshed) {
-                    console.log("[AuthService] Refresh succeeded, session now valid");
-                    return true;
-                }
-
-                console.warn("[AuthService] Refresh failed, clearing auth state");
+            // Do not refresh on session expiry in mini-app; force logout flow.
+            if (response.status === 401 || response.status === 403) {
+                console.warn("[AuthService] Session expired/unauthorized, clearing auth state");
                 AuthService.clearAllTokens();
                 return false;
             }
@@ -164,6 +148,7 @@ export const AuthService = {
         });
     },
 
+    // Check if access token is expired
     isAccessTokenExpired: (): boolean => {
         const state = store.getState();
         const auth = state ? state.auth : undefined;
@@ -171,67 +156,34 @@ export const AuthService = {
         return Date.now() >= auth.tokens.accessTokenExpiry;
     },
 
+    // Get access token from Redux store
     getAccessToken: (): string | null => {
         const state = store.getState();
         const auth = state ? state?.auth : undefined;
-        let token = auth?.tokens?.accessToken || null;
-        
-        // Fall back to localStorage if Redux is empty
-        if (!token && typeof window !== "undefined") {
-            try {
-                const persistedState = localStorage.getItem("persist:root");
-                if (persistedState) {
-                    const parsed = JSON.parse(persistedState);
-                    const authState = parsed.auth ? JSON.parse(parsed.auth) : null;
-                    token = authState?.tokens?.accessToken || null;
-                }
-            } catch (e) {}
-        }
-        return token;
+        return auth?.tokens?.accessToken || null;
     },
 
+    // Get refresh token from Redux store
     getRefreshToken: (): string | null => {
         const state = store.getState();
         const auth = state ? state.auth : undefined;
-        let token = auth?.tokens?.refreshToken || null;
-        
-        // Fall back to localStorage if Redux is empty
-        if (!token && typeof window !== "undefined") {
-            try {
-                const persistedState = localStorage.getItem("persist:root");
-                if (persistedState) {
-                    const parsed = JSON.parse(persistedState);
-                    const authState = parsed.auth ? JSON.parse(parsed.auth) : null;
-                    token = authState?.tokens?.refreshToken || null;
-                }
-            } catch (e) {}
-        }
-        return token;
+        return auth?.tokens?.refreshToken || null;
     },
 
+    // Get session ID from Redux store
     getSessionId: (): string | null => {
         const state = store.getState();
         const auth = state ? state.auth : undefined;
-        let sessionId = auth?.tokens?.sessionId || null;
-        
-        // Fall back to localStorage if Redux is empty
-        if (!sessionId && typeof window !== "undefined") {
-            try {
-                const persistedState = localStorage.getItem("persist:root");
-                if (persistedState) {
-                    const parsed = JSON.parse(persistedState);
-                    const authState = parsed.auth ? JSON.parse(parsed.auth) : null;
-                    sessionId = authState?.tokens?.sessionId || null;
-                }
-            } catch (e) {}
-        }
+        const sessionId = auth?.tokens?.sessionId;
         return sessionId && sessionId !== "" ? sessionId : null;
     },
 
+    // Get User ID from Redux store
     getUserId: (): string | null => {
         const state = store.getState();
         const auth = state ? state.auth : undefined;
         const userId = auth?.user?.userId;
+        // Return null if userId is empty string, null, or undefined
         return userId && userId !== "" ? userId : null;
     },
 
@@ -254,12 +206,12 @@ export const AuthService = {
         refreshTokenExpiry: number;
         sessionId: string;
     }): void => {
-        // Store tokens in Redux (this will be persisted to localStorage)
+        // Store all tokens in Redux (will be persisted automatically)
         store.dispatch(setTokens(tokens));
 
-        // Store refresh token in cookie (same as main app)
+        // Store only refresh token in cookie as backup
         setCookie(REFRESH_TOKEN_COOKIE, tokens.refreshToken, {
-            expires: new Date(tokens.refreshTokenExpiry), // Use Date object instead of timestamp
+            expires: tokens.refreshTokenExpiry,
             secure: process.env.NODE_ENV === "production",
             sameSite: "lax" as const,
             path: "/"
@@ -270,34 +222,8 @@ export const AuthService = {
     isAuthenticated: (): boolean => {
         const state = store.getState();
         const auth = state ? state.auth : undefined;
-        let hasToken = !!auth?.tokens?.accessToken;
-        let tokenExpiry = auth?.tokens?.accessTokenExpiry;
-        let source = "redux";
-        
-        // CRITICAL FIX: If Redux is empty, check localStorage directly
-        // This handles the case where PersistGate hasn't hydrated yet
-        if (!hasToken && typeof window !== "undefined") {
-            try {
-                const persistedState = localStorage.getItem("persist:root");
-                if (persistedState) {
-                    const parsed = JSON.parse(persistedState);
-                    const authState = parsed.auth ? JSON.parse(parsed.auth) : null;
-                    if (authState?.tokens?.accessToken) {
-                        hasToken = true;
-                        tokenExpiry = authState.tokens.accessTokenExpiry;
-                        source = "localStorage";
-                    }
-                }
-            } catch (e) {
-                // Error reading from localStorage
-            }
-        }
-        
-        const isExpired = tokenExpiry ? Date.now() >= tokenExpiry : true;
-        const result = !!(hasToken && !isExpired);
-        
         // Consider authenticated if we have valid access token, even without session ID
-        return result;
+        return !!(auth?.tokens?.accessToken && !AuthService.isAccessTokenExpired());
     },
 
     // Check if we have a complete session (including session ID)
@@ -325,6 +251,9 @@ export const AuthService = {
         // Clear refresh token cookie
         deleteCookie(REFRESH_TOKEN_COOKIE);
 
+        // Reset global auth state in withAuth
+        resetAuthState();
+
         // Clear token refresh queue
         tokenRefreshQueue.clear();
 
@@ -348,11 +277,6 @@ export const AuthService = {
             });
         }
 
-        // Clear session storage flags
-        if (typeof sessionStorage !== "undefined") {
-            sessionStorage.removeItem("just_logged_in");
-            sessionStorage.removeItem("auth_redirecting");
-        }
     },
 
     /**
@@ -380,6 +304,7 @@ export const AuthService = {
         }
     },
 
+    // Set access token in Redux store (for token refresh scenarios)
     storeAccessToken: (token: string, expiry: number): void => {
         store.dispatch(
             updateAccessToken({

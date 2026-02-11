@@ -1,37 +1,44 @@
 import { setUser } from "@redux/slices/authSlice";
-import { AuthService, getTokenExpiry } from "./authService";
+import { getTokenExpiry } from "./authConfig";
+import { getDeviceFingerprint } from "@utils";
+import { AuthService } from "./authService";
+import { redirectToAuth, shouldRedirectToAuth } from "./redirectUtils";
 import { store } from "@redux/store";
-import { redirectToAuth } from "./redirectUtils";
 import { useEffect } from "react";
 
-/**
- * Fetch interceptor that automatically adds auth headers to API requests
- * This ensures CopilotKit and other API calls include authentication
- */
+const AUTH_ENDPOINTS = [
+    "/api/auth/signin",
+    "/api/auth/logout",
+    "/api/auth/signup",
+    "/api/auth/validate-session",
+    "/api/auth/session/refresh",
+    "/api/auth/reset-password",
+    "/api/auth/forgot-password",
+    "/api/auth/user-info"
+];
 
-// Flag to prevent multiple simultaneous redirects
-let isRedirecting = false;
+const isAuthEndpoint = (url: string): boolean => {
+    return AUTH_ENDPOINTS.some((endpoint) => url.includes(endpoint));
+};
 
 export const useFetchInterceptor = () => {
     useEffect(() => {
         const originalFetch = window.fetch;
-        isRedirecting = false; // Reset on mount
-        
         window.fetch = async (url, options = {}) => {
-            const modifiedOptions: RequestInit = {
+            const deviceId = await getDeviceFingerprint();
+            const requestHeaders: Record<string, string> = {
+                ...(options.headers as Record<string, string>),
+                "device-id": deviceId
+            };
+            const modifiedOptions = {
                 ...options,
-                headers: {
-                    ...(options.headers as Record<string, string> || {})
-                } as Record<string, string>
+                headers: requestHeaders
             };
 
-            // Add authentication headers for API endpoints
-            // This includes copilotkit and other authenticated endpoints
+            // Add authentication headers for copilotkit and other authenticated endpoints
             if (
                 typeof url === "string" &&
-                (url.includes("/api/copilotkit") || 
-                 url.startsWith("/api/") || 
-                 (url.startsWith("http") && !url.includes("/api/auth/signin")))
+                (url.includes("/api/copilotkit") || url.startsWith("/api/") || (url.startsWith("http") && !url.includes("/api/auth/signin")))
             ) {
                 // Skip adding auth headers if refresh is in progress to prevent loops
                 if (!(AuthService as any).isRefreshing) {
@@ -40,99 +47,25 @@ export const useFetchInterceptor = () => {
                     const sessionId = AuthService.getSessionId();
 
                     if (accessToken) {
-                        (modifiedOptions.headers as Record<string, string>)["Authorization"] = `Bearer ${accessToken}`;
+                        requestHeaders["Authorization"] = `Bearer ${accessToken}`;
                     }
-                    
                     if (sessionId) {
-                        (modifiedOptions.headers as Record<string, string>)["x-session_id"] = sessionId;
+                        requestHeaders["x-session_id"] = sessionId;
                     }
+                } else {
+                    console.warn("Skipping auth headers because refresh is in progress for URL:", url);
                 }
             }
 
-            let response = await originalFetch(url, modifiedOptions);
+            const response = await originalFetch(url, modifiedOptions);
 
-            // Handle 401 Unauthorized responses - token expired or invalid
-            if (response.status === 401) {
-                const urlString = typeof url === "string" ? url : url.toString();
-                
-                console.log("[FetchInterceptor] Detected 401 for URL:", urlString);
-                
-                // Don't handle auth endpoints to avoid loops
-                const isAuthEndpoint = urlString.includes("/api/auth/") || 
-                                      urlString.includes("/auth/") ||
-                                      urlString.includes("signin") ||
-                                      urlString.includes("signup");
-                
-                if (!isAuthEndpoint) {
-                    // If already redirecting, return the 401 response immediately
-                    if (isRedirecting) {
-                        console.log("[FetchInterceptor] Already redirecting, returning 401 for:", urlString);
-                        return response;
-                    }
-                    
-                    console.warn("[FetchInterceptor] 401 Unauthorized - session expired, attempting token refresh for:", urlString);
-                    
-                    // Try to refresh tokens first
-                    try {
-                        const refreshed = await AuthService.refreshSession();
-                        
-                        if (refreshed) {
-                            console.log("[FetchInterceptor] Token refresh succeeded, retrying request");
-                            
-                            // Get fresh tokens
-                            const newAccessToken = AuthService.getAccessToken();
-                            const newSessionId = AuthService.getSessionId();
-                            
-                            // Retry the original request with new tokens
-                            const retryOptions: RequestInit = {
-                                ...modifiedOptions,
-                                headers: {
-                                    ...(modifiedOptions.headers as Record<string, string> || {}),
-                                } as Record<string, string>
-                            };
-                            
-                            if (newAccessToken) {
-                                (retryOptions.headers as Record<string, string>)["Authorization"] = `Bearer ${newAccessToken}`;
-                            }
-                            
-                            if (newSessionId) {
-                                (retryOptions.headers as Record<string, string>)["x-session_id"] = newSessionId;
-                            }
-                            
-                            // Retry the request
-                            response = await originalFetch(url, retryOptions);
-                            
-                            // If retry also fails with 401, session is truly expired
-                            if (response.status === 401) {
-                                console.warn("[FetchInterceptor] Session expired - redirecting to login");
-                                isRedirecting = true;
-                                AuthService.clearAllTokens();
-                                // Use setTimeout to redirect after current execution completes
-                                setTimeout(() => redirectToAuth(true), 0);
-                            }
-                            
-                            return response;
-                        } else {
-                            // Refresh failed - session expired after long inactivity
-                            console.warn("[FetchInterceptor] Session expired (refresh failed) - redirecting to login");
-                            isRedirecting = true;
-                            AuthService.clearAllTokens();
-                            // Use setTimeout to redirect after current execution completes
-                            setTimeout(() => redirectToAuth(true), 0);
-                        }
-                    } catch (refreshError) {
-                        // Suppress expected queue-cleared errors
-                        if (!(refreshError instanceof Error && refreshError.message === "Token refresh queue cleared")) {
-                            console.error("[FetchInterceptor] Refresh error:", refreshError);
-                        }
-                        isRedirecting = true;
-                        AuthService.clearAllTokens();
-                        // Use setTimeout to redirect after current execution completes
-                        setTimeout(() => redirectToAuth(true), 0);
-                    }
+            // Global unauthorized handling: clear auth and redirect once to /auth.
+            if (typeof url === "string" && !isAuthEndpoint(url) && (response.status === 401 || response.status === 403)) {
+                console.warn("[FetchInterceptor] Unauthorized response, redirecting to auth:", url, response.status);
+                AuthService.clearAllTokens();
+                if (shouldRedirectToAuth()) {
+                    redirectToAuth(true);
                 }
-                
-                // Return the response so the caller can handle it if needed
                 return response;
             }
 
@@ -166,11 +99,6 @@ export const useFetchInterceptor = () => {
                         refreshTokenExpiry,
                         sessionId
                     });
-
-                    // Mark fresh login moment
-                    try {
-                        sessionStorage.setItem("just_logged_in", Date.now().toString());
-                    } catch {}
 
                     // If front-token available, update user in store
                     if (frontToken) {
@@ -208,7 +136,8 @@ export const useFetchInterceptor = () => {
                     AuthService.storeAccessToken(accessToken, accessTokenExpiry);
                 }
             } catch (e) {
-                // Non-fatal - some responses won't have tokens
+                // Non-fatal
+                console.warn("Auth fetch interceptor post-process error:", e);
             }
 
             return response;
